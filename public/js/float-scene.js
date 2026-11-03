@@ -106,6 +106,13 @@ export async function createFloatScene(canvas, opts = {}) {
     launchT = 0; launchPower = power; exitFired = false;
     ripples.spawn(k.group.position.x, k.group.position.z, { maxScale: 3.5 });
     opts.onLaunch?.();
+    // safety net for slow devices (low FPS): always hand over within 7 s of real time
+    const launchedK = k;
+    setTimeout(() => {
+      if (running && k === launchedK && state === 'launching' && !exitFired) {
+        exitFired = true; state = 'gone'; opts.onExit?.();
+      }
+    }, 7000);
     return true;
   }
 

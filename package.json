@@ -27,5 +27,8 @@
     "socket.io": "^4.8.4",
     "three": "^0.187.0"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
 }
