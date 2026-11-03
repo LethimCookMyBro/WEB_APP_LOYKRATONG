@@ -92,6 +92,22 @@
           <label class="field" for="vol">ระดับเสียงเพลง</label>
           <input type="range" id="vol" min="0" max="1" step="0.05" value="0.8" style="width:100%">
           <div class="divider"></div>
+          <div class="field">🎵 เพลงประกอบบนจอใหญ่</div>
+          <p class="muted small" style="margin:0 0 8px">ตอนนี้: <b id="bgmName">เพลงที่ระบบแต่งเอง (สไตล์ดนตรีไทย)</b></p>
+          <div class="row-wrap">
+            <label class="btn btn-sm" style="cursor:pointer">⬆️ อัปโหลดเพลง (MP3/M4A ไม่เกิน 25 MB)<input type="file" accept="audio/*" hidden id="bgmFile"></label>
+            <button class="btn btn-sm btn-ghost" id="bgmRemove" hidden>ใช้เพลงของระบบแทน</button>
+          </div>
+          <div class="progress-line" id="bgmProgress" hidden><span></span></div>
+          <p class="muted small" style="margin:8px 0 0">⚠️ ใช้เฉพาะเพลงที่มีสิทธิ์เปิดในงาน (ซื้อหรือได้รับอนุญาต) · ไฟล์เก็บไว้ในเซิร์ฟเวอร์ชั่วคราว ถ้าเซิร์ฟเวอร์รีสตาร์ตต้องอัปโหลดใหม่</p>
+          <div class="divider"></div>
+          <div class="field">🏷️ ป้ายชื่อบนกระทง</div>
+          <div class="row-wrap">
+            <button class="btn btn-sm" data-ctl="labels_all">อัตโนมัติ (แนะนำ)</button>
+            <button class="btn btn-sm" data-ctl="labels_near">เฉพาะลำใกล้ ๆ</button>
+            <button class="btn btn-sm" data-ctl="labels_off">ซ่อน</button>
+          </div>
+          <div class="divider"></div>
           <label class="field" for="joinUrl">ลิงก์สำหรับผู้เข้าร่วม (ใช้สร้าง QR บนจอใหญ่และกระดาษ)</label>
           <div class="row">
             <input class="input" id="joinUrl" style="min-height:44px;font-size:14px" placeholder="https://xxxx.trycloudflare.com/">

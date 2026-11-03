@@ -9,7 +9,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { glowTexture } from './krathong-model.js';
 
 export const MOON_DIR = new THREE.Vector3(-0.35, 0.32, -1).normalize();
-export const MAX_WATER_LIGHTS = 40;
+export const MAX_WATER_LIGHTS = 24;
 
 /** Tiny replacement for the deprecated THREE.Clock. */
 export function createClock() {
@@ -34,9 +34,13 @@ export function hasWebGL() {
   } catch { return false; }
 }
 
-/** Renderer + EffectComposer(RenderPass, UnrealBloomPass, OutputPass). */
-export function createRenderer(canvas, { pixelRatio = 2, bloom = true, bloomStrength = 0.9, bloomScale = 0.5 } = {}) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+/**
+ * Renderer + EffectComposer(RenderPass, UnrealBloomPass, OutputPass).
+ * The composer renders into a multisampled target (MSAA) so the canvas itself
+ * does not need antialiasing; bloom runs at a reduced resolution.
+ */
+export function createRenderer(canvas, { pixelRatio = 2, bloom = true, bloomStrength = 0.9, bloomScale = 0.5, msaa = 4 } = {}) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !bloom, powerPreference: 'high-performance', stencil: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pixelRatio));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.9;
@@ -45,9 +49,10 @@ export function createRenderer(canvas, { pixelRatio = 2, bloom = true, bloomStre
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1200);
   let composer = null; let bloomPass = null;
   if (bloom) {
-    composer = new EffectComposer(renderer);
+    const target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: msaa });
+    composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
-    bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), bloomStrength, 0.55, 0.62);
+    bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), bloomStrength, 0.5, 0.7);
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
   }
@@ -58,6 +63,7 @@ export function createRenderer(canvas, { pixelRatio = 2, bloom = true, bloomStre
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     if (composer) {
+      composer.setPixelRatio(renderer.getPixelRatio());
       composer.setSize(w, h);
       bloomPass.resolution.set(w * bloomScale, h * bloomScale);
     }
@@ -72,12 +78,59 @@ export function createRenderer(canvas, { pixelRatio = 2, bloom = true, bloomStre
 /* ------------------------------------------------------------------ */
 /* Water                                                               */
 /* ------------------------------------------------------------------ */
-export function createWater({ size = 600, segments = 160, fogNear = 40, fogFar = 220 } = {}) {
+
+/**
+ * Tileable normal map built once on the CPU from a sum of sine waves with
+ * integer frequencies (so it wraps seamlessly). Sampling a texture twice is far
+ * cheaper per pixel than evaluating fractal noise in the shader.
+ */
+let waterNormalTex = null;
+function waterNormalTexture(size = 256) {
+  if (waterNormalTex) return waterNormalTex;
+  let seed = 11;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  const waves = [];
+  while (waves.length < 34) {
+    const kx = Math.round((rnd() - 0.5) * 16); const ky = Math.round((rnd() - 0.5) * 16);
+    if (!kx && !ky) continue;
+    const k = Math.hypot(kx, ky);
+    waves.push({ kx, ky, a: 1 / Math.pow(k, 1.25), ph: rnd() * Math.PI * 2 });
+  }
+  const data = new Uint8Array(size * size * 4);
+  const TAU = Math.PI * 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let dx = 0; let dy = 0;
+      const u = x / size; const v = y / size;
+      for (const w of waves) {
+        const c = Math.cos(TAU * (w.kx * u + w.ky * v) + w.ph) * w.a * TAU;
+        dx += c * w.kx; dy += c * w.ky;
+      }
+      const s = 0.045;
+      let nx = -dx * s; let ny = -dy * s; let nz = 1;
+      const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
+      const i = (y * size + x) * 4;
+      data[i] = (nx * 0.5 + 0.5) * 255; data[i + 1] = (ny * 0.5 + 0.5) * 255; data[i + 2] = (nz * 0.5 + 0.5) * 255; data[i + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.anisotropy = 4;
+  tex.needsUpdate = true;
+  waterNormalTex = tex;
+  return tex;
+}
+
+export function createWater({ size = 600, segments = 96, fogNear = 40, fogFar = 220 } = {}) {
   const lights = Array.from({ length: MAX_WATER_LIGHTS }, () => new THREE.Vector4(0, -100, 0, 0));
   const uniforms = {
     uTime: { value: 0 },
+    uNormal: { value: waterNormalTexture() },
     uMoonDir: { value: MOON_DIR.clone() },
-    uDeep: { value: new THREE.Color('#030a1c') },
+    uDeep: { value: new THREE.Color('#040b1e') },
     uSkyTop: { value: new THREE.Color('#0b1238') },
     uSkyHorizon: { value: new THREE.Color('#2a2150') },
     uCeremony: { value: 0 },
@@ -102,59 +155,50 @@ export function createWater({ size = 600, segments = 160, fogNear = 40, fogFar =
       }`,
     fragmentShader: /* glsl */`
       #define MAXL ${MAX_WATER_LIGHTS}
-      uniform float uTime; uniform vec3 uMoonDir; uniform vec3 uDeep; uniform vec3 uSkyTop; uniform vec3 uSkyHorizon;
+      uniform float uTime; uniform sampler2D uNormal; uniform vec3 uMoonDir; uniform vec3 uDeep; uniform vec3 uSkyTop; uniform vec3 uSkyHorizon;
       uniform float uCeremony; uniform vec4 uRipple; uniform vec4 uLights[MAXL]; uniform int uLightCount;
       uniform vec3 uFogColor; uniform float uFogNear; uniform float uFogFar; uniform float uWaveScale;
       varying vec3 vWorld;
-      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-      float noise(vec2 p) {
-        vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
-        return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
-      }
-      float fbm(vec2 p) {
-        float v = 0.0; float a = 0.5;
-        for (int i = 0; i < 4; i++) { v += a * noise(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; }
-        return v;
-      }
-      float height(vec2 p) {
-        float t = uTime * 0.35;
-        return fbm(p * 0.45 + vec2(t, t * 0.6)) + 0.5 * fbm(p * 1.3 - vec2(t * 1.3, -t));
-      }
       void main() {
         vec2 p = vWorld.xz;
-        float e = 0.06;
-        float h = height(p);
-        float hx = height(p + vec2(e, 0.0)); float hz = height(p + vec2(0.0, e));
-        float k = 0.3 * uWaveScale;
-        vec3 N = normalize(vec3(-(hx - h) / e * k, 1.0, -(hz - h) / e * k));
+        vec3 n1 = texture2D(uNormal, p * 0.045 + uTime * vec2(0.011, 0.007)).xyz * 2.0 - 1.0;
+        vec3 n2 = texture2D(uNormal, p * 0.11 + uTime * vec2(-0.009, 0.013)).xyz * 2.0 - 1.0;
+        vec2 slope = (n1.xy + n2.xy * 0.6) * 0.55 * uWaveScale;
+        vec3 N = normalize(vec3(slope.x, 1.0, slope.y));
         vec3 V = normalize(cameraPosition - vWorld);
-        float fres = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+        float ndv = max(dot(N, V), 0.0);
+        float f1 = 1.0 - ndv; float f2 = f1 * f1;
+        float fres = 0.04 + 0.96 * f2 * f2 * f1;
         vec3 R = reflect(-V, N);
         vec3 sky = mix(uSkyHorizon, uSkyTop, clamp(R.y * 2.2, 0.0, 1.0));
         float md = max(dot(R, uMoonDir), 0.0);
-        float moon = pow(md, 1400.0) * 2.4 + pow(md, 90.0) * 0.1;
+        float md8 = md * md; md8 *= md8; md8 *= md8;            // md^8
+        float md64 = md8 * md8; md64 *= md64; md64 *= md64;       // md^64
+        float md256 = md64 * md64; md256 *= md256;               // md^256
+        float moon = md256 * 0.75 + md64 * 0.035;
         vec3 col = mix(uDeep, sky, clamp(fres * 1.15, 0.0, 1.0)) + vec3(1.0, 0.95, 0.82) * moon;
-        // candle reflections: warm glow + streak toward the camera
+        // candle reflections: soft pool + short streak toward the camera (no flicker)
         vec3 warm = vec3(0.0);
         for (int i = 0; i < MAXL; i++) {
           if (i >= uLightCount) break;
           vec4 L = uLights[i];
           vec2 d = p - L.xz;
+          float d2 = dot(d, d);
+          if (d2 > 60.0) continue;
           vec2 toCam = normalize(cameraPosition.xz - L.xz);
           float along = dot(d, toCam);
-          float across = dot(d, vec2(-toCam.y, toCam.x)) + (N.x * 0.6);
-          float pool = exp(-dot(d, d) * 0.9);
-          float streak = exp(-across * across * 5.0) * exp(-max(along, 0.0) * 0.22) * step(0.0, along) * (0.6 + 0.4 * sin(along * 6.0 - uTime * 3.0 + N.z * 8.0));
-          warm += vec3(1.0, 0.6, 0.22) * (pool * 0.55 + streak * 0.35) * L.w;
+          float across = dot(d, vec2(-toCam.y, toCam.x)) + slope.x * 0.8;
+          float pool = exp(-d2 * 0.9);
+          float streak = along > 0.0 ? exp(-across * across * 5.0 - along * 0.3) : 0.0;
+          warm += (pool * 0.5 + streak * 0.32) * L.w;
         }
-        col += warm;
+        col += vec3(1.0, 0.6, 0.22) * warm;
         // golden ripple (opening ceremony)
         float rt = uTime - uRipple.z;
         if (rt > 0.0 && rt < 14.0) {
           float radius = rt * 8.5;
           float dist = distance(p, uRipple.xy);
-          float wobble = (N.x + N.z) * 1.4;
-          float ring = exp(-pow((dist - radius + wobble) / 1.8, 2.0)) * (1.0 - rt / 14.0);
+          float ring = exp(-pow((dist - radius + slope.x * 3.0) / 1.8, 2.0)) * (1.0 - rt / 14.0);
           float inner = exp(-dist * 0.05) * max(0.0, 1.0 - rt / 7.0) * 0.35;
           col += vec3(1.0, 0.76, 0.32) * (ring * 1.7 + inner) * uRipple.w;
         }

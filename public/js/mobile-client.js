@@ -51,6 +51,7 @@ const t = (k) => UI[state.lang][k] ?? UI.th[k] ?? k;
 const targetScript = () => (state.mode === LANGUAGE_MODES.TH_TO_JP ? 'ja' : 'th');
 const nativeLang = () => (state.mode === LANGUAGE_MODES.TH_TO_JP ? 'th' : 'ja');
 const targetFontClass = () => targetScript();
+const stepOf = (n) => t('stepOf').replace('{n}', n);
 const vibrate = (p) => { try { navigator.vibrate?.(p); } catch { /* ignore */ } };
 
 function toast(msg, type = '') {
@@ -65,7 +66,8 @@ function toast(msg, type = '') {
 const socket = window.io ? window.io({ transports: ['websocket', 'polling'] }) : null;
 function setConn(on) {
   $('#connDot').className = 'dot ' + (on ? 'on' : 'off');
-  $('#connText').textContent = on ? 'online' : 'offline';
+  $('#connText').textContent = state.mode ? t(on ? 'connOn' : 'connOff') : '';
+  $('#conn').title = t(on ? 'connOn' : 'connOff');
   document.querySelectorAll('[data-conn]').forEach((n) => { n.className = 'dot ' + (on ? 'on' : 'off'); });
 }
 if (socket) {
@@ -104,8 +106,8 @@ function canEnter(step) {
 function renderChrome() {
   document.body.dataset.lang = state.lang;
   document.documentElement.lang = state.lang;
-  $('#brandTitle').textContent = t('appTitle');
-  $('#brandSub').textContent = t('appSub');
+  $('#brandTitle').textContent = state.mode ? t('appTitle') : 'ลอยกระทง 3 มิติ';
+  $('#brandSub').textContent = state.mode ? t('appSub') : 'ไทย × 日本 · ภาษาและวัฒนธรรม';
   const prog = $('#progress');
   const idx = STEPS.indexOf(state.step);
   prog.hidden = idx < 0;
@@ -162,6 +164,14 @@ function renderWelcome(root) {
     resume.querySelector('[data-a=restart]').onclick = () => { state = fresh(); save(); render(); };
     root.appendChild(resume);
   }
+  root.appendChild(h(`<ol class="how">
+    <li><b>1</b><span>ชื่อ<br><small>なまえ</small></span></li>
+    <li><b>2</b><span>คำอธิษฐาน<br><small>ねがいごと</small></span></li>
+    <li><b>3</b><span>เขียน & พับ<br><small>書く・折る</small></span></li>
+    <li><b>4</b><span>ถ่ายภาพ<br><small>撮る</small></span></li>
+    <li><b>5</b><span>ลอยกระทง<br><small>流す</small></span></li>
+  </ol>`));
+  root.appendChild(h(`<p class="center muted small" style="margin:18px 0 0">เลือกภาษาของคุณ · あなたの言語を選んでください</p>`));
   const cards = h(`<div class="lang-cards">
     <button class="lang-card" data-mode="TH_TO_JP" data-lang="th">
       <span class="flag">🇹🇭</span>
@@ -198,7 +208,7 @@ function convertName(input) {
 function renderName(root) {
   const ja = targetScript() === 'ja';
   root.appendChild(h(`<div>
-    <div class="eyebrow">${esc(t('stepName'))} · 1/5</div>
+    <div class="eyebrow">${esc(stepOf(1))}</div>
     <h2 class="h1">${esc(t('nameTitle'))}</h2>
     <p class="muted" style="margin:0 0 14px">${esc(t('nameHint'))}</p>
     <label class="sr-only" for="nameInput">${esc(t('nameTitle'))}</label>
@@ -209,7 +219,7 @@ function renderName(root) {
   const input = $('#nameInput');
   const bar = actionBar([
     { html: `‹ ${esc(t('back'))}`, cls: 'btn-ghost', onClick: () => go('welcome'), key: 'back' },
-    { html: `${esc(t('next'))} ›`, cls: 'btn-primary', onClick: () => go('wish'), key: 'next', disabled: !state.nameOut.trim() },
+    { html: `${esc(t('nextToWish'))} ›`, cls: 'btn-primary', onClick: () => go('wish'), key: 'next', disabled: !state.nameOut.trim() },
   ]);
   let patternTimer = null;
   function showResult(fromInput) {
@@ -271,7 +281,7 @@ function renderName(root) {
 }
 
 function patternLabels() {
-  return state.lang === 'ja' ? { play: '再生', slow: 'ゆっくり', all: '全体' } : { play: 'เล่น', slow: 'ช้า', all: 'ทั้งหมด' };
+  return { play: t('patPlay'), slow: t('patSlow'), all: t('patAll') };
 }
 
 /* ------------------------------------------------------------------ */
@@ -340,7 +350,7 @@ const currentWish = () => (state.wishId === 'custom' ? null : getWish(state.wish
 
 function renderWish(root) {
   root.appendChild(h(`<div>
-    <div class="eyebrow">${esc(t('stepWish'))} · 2/5</div>
+    <div class="eyebrow">${esc(stepOf(2))}</div>
     <h2 class="h1">${esc(t('wishTitle'))}</h2>
     <p class="muted" style="margin:0">${esc(t('wishHint'))}</p>
     <div class="wish-grid" id="wishGrid"></div>
@@ -348,7 +358,7 @@ function renderWish(root) {
   const grid = $('#wishGrid');
   const bar = actionBar([
     { html: `‹ ${esc(t('back'))}`, cls: 'btn-ghost', onClick: () => go('name'), key: 'back' },
-    { html: `${esc(t('next'))} ›`, cls: 'btn-primary', onClick: () => go('write'), key: 'next', disabled: !state.wishId },
+    { html: `${esc(t('nextToWrite'))} ›`, cls: 'btn-primary', onClick: () => go('write'), key: 'next', disabled: !state.wishId },
   ]);
   const draw = () => {
     grid.innerHTML = '';
@@ -356,7 +366,7 @@ function renderWish(root) {
       const x = wishTexts(w);
       const card = h(`<button class="wish-card ${state.wishId === w.id ? 'selected' : ''}" type="button">
         <span class="ico">${w.icon}</span>
-        <span><span class="cat">${esc(x.cat)}</span><span class="target ${targetFontClass()}" style="display:block">${esc(x.target)}</span><span class="native">${esc(x.native)}</span></span>
+        <span><span class="cat">${esc(x.cat)}</span><span class="target ${targetFontClass()}" style="display:block">${esc(x.target)}</span><span class="reading-line">${esc(x.reading)}</span><span class="native">${esc(t('meaning'))}: ${esc(x.native)}</span></span>
         <span class="check">✓</span>
       </button>`);
       card.onclick = () => openWishLesson(w, () => { state.wishId = w.id; save(); bar.next.disabled = false; draw(); });
@@ -433,7 +443,7 @@ function openWishLesson(w, onChoose) {
     ${ja ? `<div style="margin-top:14px"><div class="seg-toggle"><button class="on" data-k="0">${esc(t('kanjiMode'))}</button><button data-k="1">${esc(t('kanaMode'))}</button></div></div>` : ''}
     <div id="lessonPattern" style="margin-top:6px"></div>
     <div class="pattern-tip"><span class="ico">💡</span><span>${esc(ja ? t('strokeTip') : t('thaiTip'))}</span></div>
-    <button class="btn btn-primary btn-block" style="margin-top:16px" data-a="choose">✓ ${esc(t('wishTitle'))}</button>
+    <button class="btn btn-primary btn-block" style="margin-top:16px" data-a="choose">✓ ${esc(t('chooseThis'))}</button>
   </div>`);
   const close = openSheet(content);
   const pat = () => renderPattern(content.querySelector('#lessonPattern'), { text: ja ? (useKana ? w.jaKana : w.ja) : w.th, script: targetScript(), labels: patternLabels() });
@@ -465,9 +475,10 @@ function renderWrite(root) {
   const w = currentWish();
   const x = wishTexts(w);
   root.appendChild(h(`<div>
-    <div class="eyebrow">${esc(t('stepWrite'))} · 3/5</div>
+    <div class="eyebrow">${esc(stepOf(3))}</div>
     <h2 class="h1">${esc(t('writeTitle'))}</h2>
     <p class="muted" style="margin:0 0 14px">${esc(t('writeHint'))}</p>
+    <div class="muted small" style="margin:0 0 6px">✍️ ${esc(t('writePreview'))}</div>
     <div class="paper-preview">
       <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
       <div class="muted small" style="color:#9a8f80">${esc(t('writeYourName'))}</div>
@@ -497,7 +508,7 @@ function renderWrite(root) {
   };
   actionBar([
     { html: `‹ ${esc(t('back'))}`, cls: 'btn-ghost', onClick: () => go('wish') },
-    { html: `📷 ${esc(t('next'))} ›`, cls: 'btn-primary', onClick: () => go('capture') },
+    { html: `📷 ${esc(t('nextToCapture'))} ›`, cls: 'btn-primary', onClick: () => go('capture') },
   ]);
 }
 
@@ -507,7 +518,7 @@ function renderWrite(root) {
 function renderCapture(root) {
   const c = state.capture;
   root.appendChild(h(`<div>
-    <div class="eyebrow">${esc(t('stepCapture'))} · 4/5</div>
+    <div class="eyebrow">${esc(stepOf(4))}</div>
     <h2 class="h1">${esc(c ? t('resultTitle') : t('captureTitle'))}</h2>
     <p class="muted" style="margin:0 0 14px">${esc(c ? t('paletteHint') : t('captureHint'))}</p>
     <div id="capBody"></div>
@@ -549,6 +560,7 @@ function renderCapture(root) {
           <path d="M-14 -4h28M-18 6h36" stroke="#333" stroke-width="2" stroke-linecap="round"/>
         </g>
       </svg>
+      <ul class="tips">${t('captureTips').map((x, i) => `<li><span>${['💡', '📱', '⬛'][i]}</span>${esc(x)}</li>`).join('')}</ul>
       <div class="stack">
         <button class="btn btn-primary btn-block" data-a="cam">📷 ${esc(t('openCamera'))}</button>
         <label class="btn btn-block" style="cursor:pointer">🖼️ ${esc(t('upload'))}<input type="file" accept="image/*" hidden data-a="file"></label>
@@ -562,7 +574,7 @@ function renderCapture(root) {
   file.onchange = () => { if (file.files?.[0]) loadFile(file.files[0]); };
   actionBar([
     { html: `‹ ${esc(t('back'))}`, cls: 'btn-ghost', onClick: () => go('write') },
-    { html: `🪷 ${esc(t('next'))} ›`, cls: 'btn-primary', onClick: () => go('float'), disabled: !c },
+    { html: `🪷 ${esc(t('nextToFloat'))} ›`, cls: 'btn-primary', onClick: () => go('float'), disabled: !c },
   ]);
 }
 
@@ -761,6 +773,8 @@ function renderFloat(root) {
         locked: !ceremony.opened,
         opened: ceremony.opened,
         gestureElement: floatView,
+        labelContainer: floatView,
+        signName: state.nameOut,
         onLockedAttempt: () => { toast('🔒 ' + t('waiting')); vibrate(40); },
         onLaunch: () => { phase = 'flying'; audio.swoosh(); vibrate(25); floatUI?.refresh(); },
         onExit: () => send(),

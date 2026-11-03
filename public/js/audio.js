@@ -1,7 +1,8 @@
 // audio.js — music + sound effects.
-// If /assets/audio/bgm-loykrathong.mp3 or splash-chime.mp3 exist they are used.
-// Otherwise an original, generative soundtrack is synthesised with Web Audio
-// (pentatonic mallet melody, drone, water ambience, ching/chap percussion).
+// Background music: a song uploaded by the host (/api/bgm) or
+// /assets/audio/bgm-loykrathong.mp3 if present. Otherwise an ORIGINAL Thai-style
+// piece is synthesised with Web Audio (ranat-like melody, gong-circle ostinato,
+// ching/chap, drum, water ambience). It does not reproduce any existing song.
 
 const SCALE = [0, 2, 4, 7, 9]; // major pentatonic degrees
 const ROOT = 220; // A3
@@ -36,19 +37,34 @@ export class AudioEngine {
     if (this.ctx.state === 'suspended') await this.ctx.resume();
     // optional assets
     const flags = await assetFlags();
-    if (flags.bgm) {
-      this.bgmEl = new Audio('/assets/audio/bgm-loykrathong.mp3');
-      this.bgmEl.loop = true;
-      this.bgmEl.crossOrigin = 'anonymous';
-      this.bgmGain = this.ctx.createGain();
-      this.ctx.createMediaElementSource(this.bgmEl).connect(this.bgmGain).connect(this.master);
-    }
+    this.useBgm(flags.bgmUrl || null);
     if (flags.chime) {
       try {
         const buf = await (await fetch('/assets/audio/splash-chime.mp3')).arrayBuffer();
         this.chimeBuf = await this.ctx.decodeAudioData(buf);
       } catch { this.chimeBuf = null; }
     }
+  }
+
+  /** Switch the recorded background music (null = use the generated music). */
+  useBgm(url) {
+    if (this.bgmEl) { this.bgmEl.pause(); this.bgmEl.src = ''; this.bgmEl = null; }
+    if (!url || !this.ctx) return;
+    this.bgmEl = new Audio(url);
+    this.bgmEl.loop = true;
+    this.bgmEl.crossOrigin = 'anonymous';
+    this.bgmGain = this.ctx.createGain();
+    this.bgmGain.gain.value = 0;
+    this.ctx.createMediaElementSource(this.bgmEl).connect(this.bgmGain).connect(this.master);
+  }
+
+  /** Called when the host uploads / removes a song. */
+  async reloadBgm() {
+    let flags = {};
+    try { flags = await (await fetch('/api/assets', { cache: 'no-store' })).json(); } catch { /* keep current */ }
+    const url = flags.bgmUrl ? `${flags.bgmUrl}${flags.bgmUrl.includes('?') ? '&' : '?'}v=${Date.now()}` : null;
+    this.useBgm(url);
+    if (!url) { clearInterval(this.timer); this.timer = null; }
   }
 
   makeReverb() {
@@ -171,6 +187,7 @@ export class AudioEngine {
     this.mode = mode;
     if (this.bgmEl) {
       // recorded music: quieter before the ceremony, full afterwards
+      clearInterval(this.timer); this.timer = null;
       if (mode === 'off') { this.bgmEl.pause(); return; }
       this.bgmGain.gain.setTargetAtTime(mode === 'calm' ? 0.25 : 0.9, this.ctx.currentTime, 1.5);
       this.bgmEl.play().catch(() => {});
@@ -188,22 +205,31 @@ export class AudioEngine {
   schedule() {
     const c = this.ctx;
     const festival = this.mode === 'festival';
-    const beat = festival ? 60 / 96 / 2 : 60 / 60; // eighth notes when festive
+    const beat = festival ? 60 / 100 / 2 : 60 / 60; // eighth notes when festive
+    // Original phrases (pentatonic scale degrees, -1 = rest), played in an A A B C form.
+    const PHRASES = [
+      [7, 7, 8, 9, 8, 7, 5, -1, 7, 8, 9, 10, 9, -1, 8, -1],
+      [7, 7, 8, 9, 8, 7, 5, -1, 7, 8, 9, 10, 9, -1, 8, -1],
+      [10, 10, 9, 8, 9, 8, 7, -1, 8, 7, 6, 5, 7, -1, -1, -1],
+      [5, 6, 7, 9, 8, 7, 6, 5, 6, 7, 8, 7, 5, -1, -1, -1],
+    ];
+    const KHONG = [5, 7, 9, 7]; // gong-circle ostinato on quarter notes
     while (this.nextNote < c.currentTime + 0.25) {
       const t = this.nextNote;
       const s = this.step;
       if (festival) {
-        // melody: random walk over the pentatonic scale, phrase of 16 eighths
-        const rest = (s % 16 === 15) || Math.random() < 0.12;
-        if (!rest) {
-          this.melodyPos += [-2, -1, -1, 0, 1, 1, 2][Math.floor(Math.random() * 7)];
-          this.melodyPos = Math.max(4, Math.min(13, this.melodyPos));
-          this.mallet(t, this.freq(this.melodyPos), 0.13, 0.7);
-          if (s % 4 === 0) this.mallet(t, this.freq(this.melodyPos - 5), 0.08, 1.2, 0.4);
+        const phrase = PHRASES[Math.floor(s / 16) % PHRASES.length];
+        const note = phrase[s % 16];
+        if (note >= 0) {
+          this.mallet(t, this.freq(note), 0.12, 0.75);               // ranat (xylophone) melody
+          this.mallet(t, this.freq(note - 5), 0.05, 0.9, 0.3);        // octave below
         }
-        if (s % 2 === 0) this.ching(t, s % 4 === 0); // ching on beats, chap off-beats
-        if (s % 16 === 0) this.gong(t, 98, 0.22);
-        if (s % 8 === 4) this.gong(t, 146.8, 0.08);
+        if (s % 2 === 0) this.mallet(t, this.freq(KHONG[(s / 2) % 4] - 5), 0.05, 1.6, 0.2);
+        if (s % 4 === 0) this.ching(t, false);                       // "chap" on the beat
+        if (s % 4 === 2) this.ching(t, true);                        // "ching" off the beat
+        if (s % 8 === 0) this.drum(t, 0.22);
+        if (s % 16 === 12) this.drum(t, 0.12);
+        if (s % 64 === 0) this.gong(t, 98, 0.2);
       } else {
         // calm: sparse notes with long decay
         if (Math.random() < 0.55) {
@@ -216,6 +242,14 @@ export class AudioEngine {
       this.nextNote += beat * (festival ? 1 : (0.8 + Math.random() * 0.8));
       this.step++;
     }
+  }
+
+  drum(t, vel = 0.2) {
+    const c = this.ctx;
+    const o = c.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(55, t + 0.18);
+    const g = c.createGain(); g.gain.setValueAtTime(vel, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+    o.connect(g).connect(this.master); o.start(t); o.stop(t + 0.4);
   }
 
   /* ---------- effects ---------- */

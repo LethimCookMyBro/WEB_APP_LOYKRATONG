@@ -70,7 +70,7 @@ function smokeTexture() {
   return shared.smoke;
 }
 
-function petalTexture() {
+export function petalTexture() {
   if (!shared.petalTex) {
     shared.petalTex = canvasTex(64, 128, (g, w, h) => {
       const grad = g.createLinearGradient(0, h, 0, 0);
@@ -90,7 +90,7 @@ function petalTexture() {
   return shared.petalTex;
 }
 
-function trunkTextures() {
+export function trunkTextures() {
   if (!shared.trunkTop) {
     shared.trunkTop = canvasTex(256, 256, (g, w, h) => {
       g.fillStyle = '#e8e8e0'; g.fillRect(0, 0, w, h);
@@ -114,7 +114,7 @@ function trunkTextures() {
 }
 
 /** Folded banana-leaf petal: V-shaped crease, pointed tip, base at origin, growing +Y. */
-function petalGeometry() {
+export function petalGeometry() {
   if (shared.petalGeo) return shared.petalGeo;
   const geo = new THREE.PlaneGeometry(1, 1, 6, 10);
   const pos = geo.attributes.position;
@@ -132,7 +132,7 @@ function petalGeometry() {
   return geo;
 }
 
-function marigoldGeometry() {
+export function marigoldGeometry() {
   if (shared.marigold) return shared.marigold;
   const geo = new THREE.IcosahedronGeometry(1, 3);
   const pos = geo.attributes.position;
@@ -438,7 +438,7 @@ export function createKrathong(opts = {}) {
     signM.needsUpdate = true;
     sign.visible = true;
   }
-  if (opts.signImage || opts.signText) setSign(opts.signImage, { text: opts.signText, subText: opts.signSubText });
+  if (opts.sign !== false && (opts.signImage || opts.signText)) setSign(opts.signImage, { text: opts.signText, subText: opts.signSubText });
   else sign.visible = false;
 
   if (opts.isHost) {
@@ -463,13 +463,14 @@ export function createKrathong(opts = {}) {
   const seed = Math.random() * 100;
   let flash = 0;
   function update(time, dt) {
-    const f = 0.85 + Math.sin(time * 17 + seed) * 0.06 + Math.sin(time * 7.3 + seed * 2) * 0.08 + Math.random() * 0.05;
+    // gentle, smooth flicker (no random jumps)
+    const f = 0.95 + Math.sin(time * 6.1 + seed) * 0.03 + Math.sin(time * 9.7 + seed * 2) * 0.02;
     const boost = 1 + flash * 3;
     flame.scale.set(0.12 * (0.9 + f * 0.15), 0.24 * f, 1);
     flame.position.x = Math.sin(time * 5 + seed) * 0.008;
     glow.scale.setScalar(0.9 * f * boost);
     glowM.opacity = Math.min(1, 0.65 * f * (1 + flash));
-    if (light) light.intensity = 2.0 * f * boost;
+    if (light) light.intensity = 2.0 * (0.97 + (f - 0.95) * 0.5) * boost;
     for (const t of tips) t.scale.setScalar(0.06 + Math.sin(time * 3 + seed) * 0.01);
     if (flash > 0) flash = Math.max(0, flash - dt * 0.6);
     if (smoke) {

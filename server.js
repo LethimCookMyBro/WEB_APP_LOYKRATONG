@@ -18,7 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
 const HOST_PIN = (process.env.HOST_PIN || String(randomInt(1000, 10000))).trim();
 const UNLOCK_DELAY_MS = Number(process.env.UNLOCK_DELAY_MS ?? 6500); // sync with the golden ripple
-const RIVER_LIMIT = Number(process.env.RIVER_LIMIT) || 60;
+const RIVER_LIMIT = Number(process.env.RIVER_LIMIT) || 300; // everyone's krathong stays on the stage
 const SPAWN_COOLDOWN_MS = Number(process.env.SPAWN_COOLDOWN_MS ?? 8000);
 
 function lanAddress() {
@@ -62,9 +62,61 @@ app.get('/api/config', (req, res) => {
   res.json({ joinUrl: state.joinUrl, opened: state.opened });
 });
 
+// Background music uploaded by the host (kept in memory; re-upload after a server restart).
+// Only upload music you have the rights to play at the event.
+let uploadedBgm = null; // { buf, type, name, at }
+const MAX_BGM_BYTES = 25 * 1024 * 1024;
+const pinOk = (req) => String(req.get('x-host-pin') || '') === HOST_PIN;
+
 app.get('/api/assets', (req, res) => {
   const has = (p) => existsSync(path.join(__dirname, 'public/assets', p));
-  res.json({ model: has('models/krathong.glb'), bgm: has('audio/bgm-loykrathong.mp3'), chime: has('audio/splash-chime.mp3') });
+  const fileBgm = has('audio/bgm-loykrathong.mp3');
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    model: has('models/krathong.glb'),
+    bgm: !!uploadedBgm || fileBgm,
+    bgmUrl: uploadedBgm ? `/api/bgm?v=${uploadedBgm.at}` : fileBgm ? '/assets/audio/bgm-loykrathong.mp3' : null,
+    bgmName: uploadedBgm ? uploadedBgm.name : fileBgm ? 'bgm-loykrathong.mp3' : null,
+    chime: has('audio/splash-chime.mp3'),
+  });
+});
+
+app.get('/api/bgm', (req, res) => {
+  if (!uploadedBgm) return res.status(404).end();
+  const { buf, type } = uploadedBgm;
+  res.setHeader('Content-Type', type);
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Cache-Control', 'no-store');
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+  if (m) {
+    const start = m[1] ? Number(m[1]) : Math.max(0, buf.length - Number(m[2]));
+    const end = m[1] && m[2] ? Math.min(Number(m[2]), buf.length - 1) : buf.length - 1;
+    if (start >= buf.length || start > end) { res.setHeader('Content-Range', `bytes */${buf.length}`); return res.status(416).end(); }
+    res.status(206).setHeader('Content-Range', `bytes ${start}-${end}/${buf.length}`);
+    res.setHeader('Content-Length', end - start + 1);
+    return res.end(buf.subarray(start, end + 1));
+  }
+  res.setHeader('Content-Length', buf.length);
+  res.end(buf);
+});
+
+app.post('/api/bgm', express.raw({ type: () => true, limit: MAX_BGM_BYTES }), (req, res) => {
+  if (!pinOk(req)) return res.status(403).json({ ok: false, error: 'not_host' });
+  const type = String(req.get('content-type') || '');
+  if (!/^audio\/(mpeg|mp3|mp4|aac|x-m4a|m4a|ogg|wav|x-wav|webm)$/.test(type)) return res.status(415).json({ ok: false, error: 'unsupported_type' });
+  if (!Buffer.isBuffer(req.body) || req.body.length < 1000) return res.status(400).json({ ok: false, error: 'empty' });
+  let name = 'music';
+  try { name = decodeURIComponent(String(req.get('x-file-name') || 'music')).replace(/[\u0000-\u001f<>]/g, '').slice(0, 80); } catch { /* keep default */ }
+  uploadedBgm = { buf: req.body, type, name, at: Date.now() };
+  io.to('stage').emit('bgm_changed', { name });
+  res.json({ ok: true, name, bytes: req.body.length });
+});
+
+app.delete('/api/bgm', (req, res) => {
+  if (!pinOk(req)) return res.status(403).json({ ok: false, error: 'not_host' });
+  uploadedBgm = null;
+  io.to('stage').emit('bgm_changed', { name: null });
+  res.json({ ok: true });
 });
 
 // Stroke-order data for any kana / kanji, fetched on demand from KanjiVG
@@ -309,7 +361,7 @@ io.on('connection', (socket) => {
   }));
 
   socket.on('stage_control', hostOnly((payload, reply) => {
-    const allowed = ['qr_big', 'qr_small', 'music_on', 'music_off', 'volume'];
+    const allowed = ['qr_big', 'qr_small', 'music_on', 'music_off', 'volume', 'labels_all', 'labels_near', 'labels_off'];
     if (!allowed.includes(payload.action)) return reply({ ok: false, error: 'invalid_action' });
     const value = typeof payload.value === 'number' ? Math.min(1, Math.max(0, payload.value)) : undefined;
     io.to('stage').emit('stage_control', { action: payload.action, value });

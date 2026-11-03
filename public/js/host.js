@@ -48,6 +48,7 @@ function auth(pin) {
     if (!res.recent?.length) $('#modList').innerHTML = '<p class="muted small">ยังไม่มีกระทง</p>';
     renderLessons();
     refreshState();
+    refreshBgm();
     initPad();
   });
 }
@@ -107,6 +108,7 @@ async function initPad() {
     pad = await createFloatScene($('#pad canvas'), {
       colors: hostK.colors, signText: $('#signText').value.trim(), signSubText: 'ロイクラトン', isHost: true,
       locked: ceremony.opened || ceremony.opening, opened: ceremony.opened, gestureElement: $('#pad'),
+      labelContainer: $('#pad'), labelClass: 'pad',
       onLockedAttempt: () => toast(ceremony.opened ? 'พิธีเปิดไปแล้ว' : 'กำลังเปิดพิธี…'),
       onLaunch: () => vibrate(30),
       onExit: () => startCeremony(),
@@ -194,6 +196,42 @@ function saveJoinUrl(url) {
 }
 $('#saveUrl').onclick = () => saveJoinUrl($('#joinUrl').value.trim());
 $('#useOrigin').onclick = () => saveJoinUrl(location.origin + '/');
+
+/* ---------------- background music upload ---------------- */
+async function refreshBgm() {
+  try {
+    const a = await (await fetch('/api/assets', { cache: 'no-store' })).json();
+    $('#bgmName').textContent = a.bgmName || 'เพลงที่ระบบแต่งเอง (สไตล์ดนตรีไทย)';
+    $('#bgmRemove').hidden = !a.bgmName;
+  } catch { /* ignore */ }
+}
+$('#bgmFile').onchange = (e) => {
+  const f = e.target.files?.[0];
+  e.target.value = '';
+  if (!f) return;
+  if (f.size > 25 * 1024 * 1024) { toast('ไฟล์ใหญ่เกิน 25 MB', 'err'); return; }
+  const xhr = new XMLHttpRequest();
+  const bar = $('#bgmProgress');
+  bar.hidden = false; bar.firstElementChild.style.width = '0%';
+  xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) bar.firstElementChild.style.width = `${(ev.loaded / ev.total) * 100}%`; };
+  xhr.onload = () => {
+    bar.hidden = true;
+    if (xhr.status === 200) { toast('อัปโหลดเพลงแล้ว จอใหญ่จะเปลี่ยนเพลงทันที', 'gold'); refreshBgm(); }
+    else if (xhr.status === 415) toast('ไฟล์นี้ไม่ใช่ไฟล์เสียงที่รองรับ (ใช้ MP3, M4A, OGG หรือ WAV)', 'err');
+    else if (xhr.status === 413) toast('ไฟล์ใหญ่เกินไป', 'err');
+    else toast('อัปโหลดไม่สำเร็จ', 'err');
+  };
+  xhr.onerror = () => { bar.hidden = true; toast('อัปโหลดไม่สำเร็จ', 'err'); };
+  xhr.open('POST', '/api/bgm');
+  xhr.setRequestHeader('Content-Type', f.type || 'audio/mpeg');
+  xhr.setRequestHeader('X-Host-Pin', ss.get('hostPin') || '');
+  xhr.setRequestHeader('X-File-Name', encodeURIComponent(f.name));
+  xhr.send(f);
+};
+$('#bgmRemove').onclick = async () => {
+  const r = await fetch('/api/bgm', { method: 'DELETE', headers: { 'X-Host-Pin': ss.get('hostPin') || '' } });
+  if (r.ok) { toast('กลับไปใช้เพลงของระบบแล้ว'); refreshBgm(); }
+};
 
 /* ---------------- moderation ---------------- */
 function addMod(k) {

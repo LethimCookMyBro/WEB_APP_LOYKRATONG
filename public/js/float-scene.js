@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { createRenderer, createWater, createSky, createSparkles, createRippleSystem, waveHeight, MOON_DIR, createClock } from './scene-env.js';
 import { createKrathong, preloadKrathongModel } from './krathong-model.js';
+import { SignLayer } from './sign-labels.js';
 
 const REST = new THREE.Vector3(0, 0, 2);
 
@@ -46,10 +47,17 @@ export async function createFloatScene(canvas, opts = {}) {
   }
   placeCamera();
 
+  // wish card as crisp HTML above the candle (not blurred by bloom)
+  const signs = new SignLayer(opts.labelContainer || canvas.parentElement, camera, {
+    className: opts.labelClass || 'mobile', refDistance: 7, minScale: 0.35, maxScale: 1.0,
+  });
   let k = null;
   function setKrathong({ colors, signImage, signText, signSubText, isHost } = {}) {
     if (k) { scene.remove(k.group); k.dispose(); }
-    k = createKrathong({ colors, signImage, signText, signSubText, isHost, light: true, smoke: isMobile ? 10 : 16 });
+    k = createKrathong({ colors, isHost, light: true, sign: false, smoke: isMobile ? 10 : 16 });
+    signs.clear();
+    const src = signImage ? (signImage.src || (signImage.toDataURL ? signImage.toDataURL() : null)) : null;
+    signs.add('me', { image: src, name: [signText, signSubText].filter(Boolean).join(' · ') || opts.signName || '', isHost });
     k.group.position.copy(REST);
     scene.add(k.group);
     state = 'rest';
@@ -126,7 +134,7 @@ export async function createFloatScene(canvas, opts = {}) {
     const dt = Math.min(0.05, clock.getDelta());
     const t = clock.elapsedTime;
     water.update(t); sky.update(t); sparkles.update(t); ripples.update(dt);
-    const lights = distant.map((d) => ({ x: d.x, y: 0, z: d.z, w: d.w * (0.8 + 0.2 * Math.sin(t * 3 + d.x)) }));
+    const lights = distant.map((d) => ({ x: d.x, y: 0, z: d.z, w: d.w }));
     if (k) {
       drag += (dragTarget - drag) * Math.min(1, dt * 10);
       if (bounce > 0) bounce = Math.max(0, bounce - dt * 2.2);
@@ -157,6 +165,8 @@ export async function createFloatScene(canvas, opts = {}) {
       k.update(t, dt);
       if (state !== 'gone') lights.push({ x: g.position.x, y: 0, z: g.position.z, w: 1.25 });
       g.visible = state !== 'gone';
+      camera.updateMatrixWorld();
+      signs.update(state === 'gone' ? [] : [{ id: 'me', x: g.position.x, y: g.position.y + 1.35, z: g.position.z }]);
     }
     water.setLights(lights);
     env.render();
@@ -187,7 +197,7 @@ export async function createFloatScene(canvas, opts = {}) {
       window.removeEventListener('resize', onResize); ro.disconnect();
       el.removeEventListener('pointerdown', onDown); el.removeEventListener('pointermove', onMove);
       el.removeEventListener('pointerup', onUp); el.removeEventListener('pointercancel', onUp);
-      k?.dispose(); env.renderer.dispose();
+      k?.dispose(); signs.dispose(); env.renderer.dispose();
     },
   };
 }
