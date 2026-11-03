@@ -183,6 +183,82 @@ export function detectMarkers(canvas, expected) {
   return { points, found, all: found.every(Boolean) };
 }
 
+/**
+ * Search the whole image for the 4 corner markers (used for uploaded photos,
+ * where we do not know where the sheet is). Finds square dark blobs, then picks
+ * the 4 that best form a convex quad with the template's aspect ratio.
+ */
+export function findMarkersGlobal(canvas) {
+  const s = Math.min(1, 900 / Math.max(canvas.width, canvas.height));
+  const w = Math.round(canvas.width * s); const h = Math.round(canvas.height * s);
+  const small = makeCanvas(w, h);
+  const sctx = small.getContext('2d', { willReadFrequently: true });
+  sctx.drawImage(canvas, 0, 0, w, h);
+  const data = sctx.getImageData(0, 0, w, h).data;
+  const g = new Uint8Array(w * h);
+  const hist = new Array(256).fill(0);
+  for (let i = 0; i < w * h; i++) { const v = lum(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]) | 0; g[i] = v; hist[v]++; }
+  const thr = Math.min(otsu(hist, w * h), 95);
+  const seen = new Uint8Array(w * h); const stack = new Int32Array(w * h);
+  const blobs = [];
+  for (let i = 0; i < w * h; i++) {
+    if (seen[i] || g[i] > thr) continue;
+    let sp = 0; stack[sp++] = i; seen[i] = 1;
+    let area = 0; let sx = 0; let sy = 0; let minX = w; let minY = h; let maxX = 0; let maxY = 0;
+    while (sp) {
+      const p = stack[--sp]; const px = p % w; const py = (p / w) | 0;
+      area++; sx += px; sy += py;
+      if (px < minX) minX = px; if (px > maxX) maxX = px; if (py < minY) minY = py; if (py > maxY) maxY = py;
+      if (px > 0 && !seen[p - 1] && g[p - 1] <= thr) { seen[p - 1] = 1; stack[sp++] = p - 1; }
+      if (px < w - 1 && !seen[p + 1] && g[p + 1] <= thr) { seen[p + 1] = 1; stack[sp++] = p + 1; }
+      if (py > 0 && !seen[p - w] && g[p - w] <= thr) { seen[p - w] = 1; stack[sp++] = p - w; }
+      if (py < h - 1 && !seen[p + w] && g[p + w] <= thr) { seen[p + w] = 1; stack[sp++] = p + w; }
+    }
+    const bw = maxX - minX + 1; const bh = maxY - minY + 1;
+    const fill = area / (bw * bh); const aspect = Math.min(bw, bh) / Math.max(bw, bh);
+    if (area < 12 || area > w * h * 0.01 || fill < 0.6 || aspect < 0.55) continue;
+    blobs.push({ x: sx / area, y: sy / area, area });
+  }
+  const cand = blobs.sort((a, b) => b.area - a.area).slice(0, 24);
+  let best = null;
+  const n = cand.length;
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) for (let d = c + 1; d < n; d++) {
+    const set = [cand[a], cand[b], cand[c], cand[d]];
+    const areas = set.map((q) => q.area);
+    if (Math.max(...areas) / Math.min(...areas) > 3) continue;
+    const cx = (set[0].x + set[1].x + set[2].x + set[3].x) / 4; const cy = (set[0].y + set[1].y + set[2].y + set[3].y) / 4;
+    const ring = set.slice().sort((p, q) => Math.atan2(p.y - cy, p.x - cx) - Math.atan2(q.y - cy, q.x - cx));
+    let start = 0; let m = Infinity;
+    ring.forEach((q, i) => { if (q.x + q.y < m) { m = q.x + q.y; start = i; } });
+    const Q = [0, 1, 2, 3].map((i) => ring[(start + i) % 4]);
+    const L = (i, j) => Math.hypot(Q[i].x - Q[j].x, Q[i].y - Q[j].y);
+    const top = L(0, 1); const bot = L(3, 2); const left = L(0, 3); const right = L(1, 2);
+    if (Math.min(top, bot) / Math.max(top, bot) < 0.7 || Math.min(left, right) / Math.max(left, right) < 0.7) continue;
+    const ratio = (top + bot) / (left + right);
+    const ratioErr = Math.abs(Math.log(ratio / MARKER_ASPECT));
+    if (ratioErr > 0.35) continue;
+    // marker size should match the quad size (6 mm of 80 mm)
+    const expSide = ((top + bot) / 2) * (TEMPLATE.markerSize / MR.w);
+    const sizeErr = Math.abs(Math.log(Math.sqrt(areas.reduce((x, y) => x + y) / 4) / expSide));
+    if (sizeErr > 0.6) continue;
+    const score = ratioErr + sizeErr * 0.5 - Math.log(top + left) * 0.05;
+    if (!best || score < best.score) best = { score, Q };
+  }
+  if (!best) return null;
+  return { points: best.Q.map((q) => [q.x / s, q.y / s]), found: [true, true, true, true], all: true };
+}
+
+/** If exactly 3 markers were found, infer the 4th (parallelogram rule). */
+export function completeQuad(det) {
+  const missing = det.found.map((f, i) => (f ? -1 : i)).filter((i) => i >= 0);
+  if (missing.length !== 1) return det;
+  const m = missing[0];
+  const a = det.points[(m + 1) % 4]; const b = det.points[(m + 2) % 4]; const c = det.points[(m + 3) % 4];
+  const pts = det.points.slice();
+  pts[m] = [a[0] + c[0] - b[0], a[1] + c[1] - b[1]];
+  return { ...det, points: pts };
+}
+
 /** Default guess: centred marker rectangle covering `frac` of the image width. */
 export function defaultQuad(w, h, frac = 0.5) {
   let qw = w * frac; let qh = qw / MARKER_ASPECT;

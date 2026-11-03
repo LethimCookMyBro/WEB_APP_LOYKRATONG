@@ -17,8 +17,9 @@ export async function captureFromFile(file, opts) {
     await img.decode();
     const canvas = IP.toCanvas(img, 2000);
     URL.revokeObjectURL(url);
-    const quad = IP.defaultQuad(canvas.width, canvas.height, 0.45);
-    const det = IP.detectMarkers(canvas, quad);
+    let det = IP.findMarkersGlobal(canvas);
+    if (det) det = IP.detectMarkers(canvas, det.points); // refine at full resolution
+    else det = IP.completeQuad(IP.detectMarkers(canvas, IP.defaultQuad(canvas.width, canvas.height, 0.45)));
     openAdjust(canvas, det, 'upload', opts);
   } catch (e) {
     console.error(e);
@@ -117,7 +118,11 @@ export async function startCamera(opts) {
   shutter.onclick = () => {
     const canvas = IP.toCanvas(video, 2000);
     const scale = canvas.width / video.videoWidth;
-    const det = IP.detectMarkers(canvas, toVideo(guide(), scale));
+    let det = IP.detectMarkers(canvas, toVideo(guide(), scale));
+    if (!det.all) {
+      const global = IP.findMarkersGlobal(canvas);
+      det = global ? IP.detectMarkers(canvas, global.points) : IP.completeQuad(det);
+    }
     vibrate(30);
     close();
     openAdjust(canvas, det, 'camera', opts);
