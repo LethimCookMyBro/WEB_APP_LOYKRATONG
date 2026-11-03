@@ -254,7 +254,7 @@ function spawnKrathong(data, opt = {}) {
     speed,
     u0: hash01(id, 4) * 0.025,
     u: 0,
-    lane: isHost ? 0 : (hash01(id, 2) - 0.5) * 7,
+    lane: isHost ? 0 : (hash01(id, 2) - 0.5) * 9,
     push: 0,
     phase: hash01(id, 3) * 10,
     entry: opt.entry ? 0 : 1,
@@ -314,7 +314,7 @@ function updateKrathongs(t, dt) {
     for (let j = i + 1; j < n; j++) {
       const b = floating[j];
       const dx = a.x - b.x; const dz = a.z - b.z;
-      const min = 1.15 * (a.scale + b.scale) + 0.4;
+      const min = 1.6 * (a.scale + b.scale) + 0.6; // keep krathongs well apart
       const d2 = dx * dx + dz * dz;
       if (d2 < min * min && d2 > 1e-6) {
         const k = (min - Math.sqrt(d2)) / min * dt * 2.2;
@@ -333,7 +333,7 @@ function updateKrathongs(t, dt) {
       if (f.retire <= 0) { removeKrathong(f); continue; }
     }
     f.entry = Math.min(1, f.entry + dt / 1.3);
-    f.push = Math.max(-4, Math.min(4, f.push));
+    f.push = Math.max(-5, Math.min(5, f.push));
     const L = loopAt(f.u);
     const nx = -L.tz; const nz = L.tx; // normal (unnormalised tangent is ~unit)
     const lat = f.lane + f.push;

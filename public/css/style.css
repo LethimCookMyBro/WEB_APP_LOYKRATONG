@@ -538,3 +538,8 @@ label.field { display: block; font-size: 14px; color: var(--muted); margin-botto
 .tips li { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); font-size: 14px; }
 .conn { min-width: 0; }
 @media (max-width: 380px) { #connText { display: none; } }
+/* leader lines that join each wish card to its krathong */
+.sign-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.sign-lines line { stroke: rgba(255, 214, 140, 0.75); stroke-width: 1.5; }
+.sign-lines circle { fill: #ffe1a1; }
+.sign-card::after { display: none; }
