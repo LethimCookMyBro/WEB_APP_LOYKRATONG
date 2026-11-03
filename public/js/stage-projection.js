@@ -346,7 +346,7 @@ function feed(data) {
   const wish = getWish(data.selectedWishId);
   const learnTh = data.languageMode === 'JP_TO_TH';
   const name = data.displayName || (data.isHost ? 'พิธีกร · 司会' : '🪷');
-  const wishTx = wish ? (learnTh ? wish.th : wish.ja) : '';
+  const wishTx = wish ? (learnTh ? wish.th : wish.ja) : (data.customWish || '');
   const el = document.createElement('div');
   el.className = 'feed-item';
   const lotus = document.createElement('span'); lotus.className = 'lotus'; lotus.textContent = '🪷';

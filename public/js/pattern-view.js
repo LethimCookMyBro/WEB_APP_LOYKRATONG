@@ -4,7 +4,23 @@
 //  • Thai: dashed tracing outline in a looped (หัวกลม) font on 4-line paper,
 //    animated character by character. (No stroke-order dataset exists for Thai,
 //    so this is a tracing guide, not a stroke-order guide.)
-import { STROKES } from './data/stroke-data-ja.js';
+import { STROKES as BUNDLED } from './data/stroke-data-ja.js';
+
+// bundled kana + wish kanji, extended at runtime from /api/strokes
+const STROKES = { ...BUNDLED };
+const requested = new Set();
+async function fetchMissing(text) {
+  const missing = [...new Set([...text])].filter((c) => /[\u3041-\u30ff\u3005\u4e00-\u9fff]/u.test(c) && !STROKES[c] && !requested.has(c));
+  if (!missing.length) return false;
+  missing.forEach((c) => requested.add(c));
+  try {
+    const res = await fetch('/api/strokes?c=' + encodeURIComponent(missing.join('')));
+    if (!res.ok) return false;
+    const data = await res.json();
+    Object.assign(STROKES, data);
+    return Object.keys(data).length > 0;
+  } catch { return false; }
+}
 
 const NS = 'http://www.w3.org/2000/svg';
 const el = (tag, attrs = {}, parent) => {
@@ -200,5 +216,11 @@ export function renderPattern(container, { text, script, size = 'md', autoplay =
   mk(`<span class="ico">◼</span> ${labels.all || 'All'}`, () => ctrl.showAll());
   box.appendChild(controls);
   if (autoplay) setTimeout(() => ctrl.play(1), 250);
+  if (script === 'ja') {
+    // get real stroke order for characters we do not ship, then re-render once
+    fetchMissing(text).then((got) => {
+      if (got && box.isConnected) { ctrl.stop(); renderPattern(container, { text, script, size, autoplay, labels }); }
+    });
+  }
   return ctrl;
 }

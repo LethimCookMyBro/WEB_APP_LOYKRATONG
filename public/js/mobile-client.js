@@ -25,6 +25,7 @@ const fresh = () => ({
   nameEdited: false,
   nameSource: '',
   wishId: null,
+  customWish: '',
   capture: null, // { dataURL, colors, found, inkRatio, source }
   id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
   sent: 0,
@@ -95,7 +96,7 @@ function go(step) {
 function canEnter(step) {
   const i = STEPS.indexOf(step);
   if (i >= 1 && !state.nameOut.trim()) return false;
-  if (i >= 2 && !state.wishId) return false;
+  if (i >= 2 && (!state.wishId || (state.wishId === 'custom' && !state.customWish.trim()))) return false;
   if (i >= 4 && !state.capture) return false;
   return true;
 }
@@ -317,7 +318,13 @@ function openSheet(content) {
 /* ------------------------------------------------------------------ */
 /* Step 2 — Wish                                                       */
 /* ------------------------------------------------------------------ */
+const scriptOf = (text) => (/[\u3041-\u30ff\u4e00-\u9fff]/.test(text) ? 'ja' : 'th');
+
 function wishTexts(w) {
+  if (!w) {
+    // custom wish typed by the participant
+    return { target: state.customWish, native: '', reading: '', kana: '', cat: t('customCat'), script: scriptOf(state.customWish) };
+  }
   const ja = targetScript() === 'ja';
   return {
     target: ja ? w.ja : w.th,
@@ -325,8 +332,11 @@ function wishTexts(w) {
     reading: ja ? w.romaji : w.thPhonetic,
     kana: ja ? w.jaKana : '',
     cat: w.category[state.lang],
+    script: targetScript(),
   };
 }
+
+const currentWish = () => (state.wishId === 'custom' ? null : getWish(state.wishId));
 
 function renderWish(root) {
   root.appendChild(h(`<div>
@@ -352,8 +362,58 @@ function renderWish(root) {
       card.onclick = () => openWishLesson(w, () => { state.wishId = w.id; save(); bar.next.disabled = false; draw(); });
       grid.appendChild(card);
     }
+    // custom wish card
+    const custom = state.wishId === 'custom' && state.customWish;
+    const cc = h(`<button class="wish-card ${state.wishId === 'custom' ? 'selected' : ''}" type="button">
+      <span class="ico">✍️</span>
+      <span><span class="cat">${esc(t('customCat'))}</span><span class="target ${custom ? scriptOf(state.customWish) : ''}" style="display:block">${esc(custom ? state.customWish : t('customCardHint'))}</span></span>
+      <span class="check">✓</span>
+    </button>`);
+    cc.onclick = () => openCustomWish(() => { bar.next.disabled = false; draw(); });
+    grid.appendChild(cc);
   };
   draw();
+}
+
+function openCustomWish(onChoose) {
+  const content = h(`<div>
+    <div class="eyebrow">✍️ ${esc(t('customCat'))}</div>
+    <div class="h2">${esc(t('customTitle'))}</div>
+    <p class="muted small" style="margin:0 0 10px">${esc(t('customHint'))}</p>
+    <label class="sr-only" for="customWish">${esc(t('customTitle'))}</label>
+    <textarea id="customWish" class="input" rows="2" maxlength="60" style="padding:12px 16px;min-height:76px;resize:none" placeholder="${esc(t('customPlaceholder'))}"></textarea>
+    <div class="row" style="justify-content:space-between;margin-top:6px"><span class="muted small" data-count>0/60</span></div>
+    <div class="notice info" style="margin-top:8px">ℹ️ <span>${esc(t('customNote'))}</span></div>
+    <div id="customPattern" style="margin-top:6px"></div>
+    <p class="muted small center" data-snote hidden>${esc(t('customStrokeNote'))}</p>
+    <button class="btn btn-primary btn-block" style="margin-top:14px" data-a="choose" disabled>✓ ${esc(t('customUse'))}</button>
+  </div>`);
+  const close = openSheet(content);
+  const ta = content.querySelector('#customWish');
+  const btn = content.querySelector('[data-a=choose]');
+  ta.value = state.customWish;
+  let timer = 0;
+  const update = () => {
+    const text = ta.value.replace(/\s+/g, ' ').trim();
+    content.querySelector('[data-count]').textContent = `${[...text].length}/60`;
+    btn.disabled = !text;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const box = content.querySelector('#customPattern');
+      if (!text) { box.innerHTML = ''; content.querySelector('[data-snote]').hidden = true; return; }
+      const script = scriptOf(text);
+      renderPattern(box, { text, script, labels: patternLabels() });
+      content.querySelector('[data-snote]').hidden = false;
+    }, 450);
+  };
+  ta.addEventListener('input', update);
+  update();
+  setTimeout(() => ta.focus(), 300);
+  btn.onclick = () => {
+    state.customWish = ta.value.replace(/\s+/g, ' ').trim().slice(0, 60);
+    state.wishId = 'custom';
+    save(); onChoose(); close(); vibrate(15);
+  };
 }
 
 function openWishLesson(w, onChoose) {
@@ -402,7 +462,7 @@ const FOLD_ICONS = [
 ];
 
 function renderWrite(root) {
-  const w = getWish(state.wishId);
+  const w = currentWish();
   const x = wishTexts(w);
   root.appendChild(h(`<div>
     <div class="eyebrow">${esc(t('stepWrite'))} · 3/5</div>
@@ -413,7 +473,7 @@ function renderWrite(root) {
       <div class="muted small" style="color:#9a8f80">${esc(t('writeYourName'))}</div>
       <div class="pp-name ${targetFontClass()}" style="font-family:var(--font-trace-${targetScript()})">${esc(state.nameOut)}</div>
       <div class="muted small" style="color:#9a8f80;margin-top:4px">${esc(t('writeYourWish'))}</div>
-      <div class="pp-wish" style="font-family:var(--font-trace-${targetScript()})">${esc(x.target)}</div>
+      <div class="pp-wish" style="font-family:var(--font-trace-${x.script})">${esc(x.target)}</div>
     </div>
     <div class="row-wrap" style="justify-content:center;margin-top:12px">
       <button class="btn btn-sm" data-a="patName">✍️ ${esc(t('writeYourName'))}</button>
@@ -429,7 +489,12 @@ function renderWrite(root) {
     const c = h('<div><div class="h2 center">' + esc(state.nameOut) + '</div><div class="p"></div></div>');
     openSheet(c); renderPattern(c.querySelector('.p'), { text: state.nameOut, script: targetScript(), size: 'lg', labels: patternLabels() });
   };
-  root.querySelector('[data-a=patWish]').onclick = () => openWishLesson(w, () => {});
+  root.querySelector('[data-a=patWish]').onclick = () => {
+    if (w) { openWishLesson(w, () => {}); return; }
+    const c = h('<div><div class="h2 center"></div><div class="p"></div></div>');
+    c.querySelector('.h2').textContent = x.target;
+    openSheet(c); renderPattern(c.querySelector('.p'), { text: x.target, script: x.script, size: 'lg', labels: patternLabels() });
+  };
   actionBar([
     { html: `‹ ${esc(t('back'))}`, cls: 'btn-ghost', onClick: () => go('wish') },
     { html: `📷 ${esc(t('next'))} ›`, cls: 'btn-primary', onClick: () => go('capture') },
@@ -523,7 +588,7 @@ function openDrawPad() {
   const colors = { ...(state.capture?.colors || DEFAULT_COLORS) };
   const pens = ['#1b1b1b', '#c0392b', '#1e5bb8', '#1f7a43'];
   let pen = pens[0];
-  const w = getWish(state.wishId); const x = wishTexts(w);
+  const x = wishTexts(currentWish());
   const content = h(`<div>
     <div class="h2 center">${esc(t('drawTitle'))}</div>
     <p class="muted small center" style="margin:0 0 10px"><span class="${targetFontClass()}">${esc(state.nameOut)} · ${esc(x.target)}</span></p>
@@ -583,7 +648,8 @@ function buildPayload() {
     id: state.id,
     isHost: false,
     languageMode: state.mode,
-    selectedWishId: state.wishId,
+    selectedWishId: state.wishId === 'custom' ? null : state.wishId,
+    customWish: state.wishId === 'custom' ? state.customWish : '',
     colors: state.capture.colors,
     handwritingImageBase64: state.capture.dataURL,
     displayName: state.nameOut,

@@ -67,6 +67,38 @@ app.get('/api/assets', (req, res) => {
   res.json({ model: has('models/krathong.glb'), bgm: has('audio/bgm-loykrathong.mp3'), chime: has('audio/splash-chime.mp3') });
 });
 
+// Stroke-order data for any kana / kanji, fetched on demand from KanjiVG
+// (CC BY-SA 3.0, Ulrich Apel) and cached in memory. Only CJK/kana code points
+// are accepted, so the upstream URL is always built from a hex code point.
+const strokeCache = new Map(); // char -> {s, n} | null
+const STROKE_CHAR = /^[\u3041-\u3096\u30a1-\u30fa\u30fc\u3005\u4e00-\u9fff]$/u;
+async function loadStrokes(ch) {
+  if (strokeCache.has(ch)) return strokeCache.get(ch);
+  const hex = ch.codePointAt(0).toString(16).padStart(5, '0');
+  let value = null;
+  try {
+    const res = await fetch(`https://raw.githubusercontent.com/KanjiVG/kanjivg/master/kanji/${hex}.svg`, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const svg = await res.text();
+      const s = [...svg.matchAll(/<path[^>]*\sd="([^"]+)"/g)].map((m) => m[1]);
+      const n = [...svg.matchAll(/matrix\(1 0 0 1 ([\d.\-]+) ([\d.\-]+)\)">(\d+)</g)].map((m) => [Number(m[1]), Number(m[2])]);
+      if (s.length) value = { s, n };
+    }
+  } catch { value = undefined; } // network error: do not cache
+  if (value !== undefined) {
+    if (strokeCache.size > 5000) strokeCache.clear();
+    strokeCache.set(ch, value);
+  }
+  return value || null;
+}
+app.get('/api/strokes', async (req, res) => {
+  const chars = [...new Set([...String(req.query.c || '')].filter((c) => STROKE_CHAR.test(c)))].slice(0, 60);
+  const out = {};
+  await Promise.all(chars.map(async (c) => { const v = await loadStrokes(c); if (v) out[c] = v; }));
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.json(out);
+});
+
 app.get('/qr.svg', async (req, res) => {
   try {
     const svg = await QRCode.toString(state.joinUrl, {
@@ -137,7 +169,7 @@ function addToRiver(k) {
 function hostSummary(k) {
   return {
     id: k.id, isHost: k.isHost, receivedAt: k.receivedAt, displayName: k.displayName,
-    selectedWishId: k.selectedWishId, languageMode: k.languageMode, colors: k.colors,
+    selectedWishId: k.selectedWishId, customWish: k.customWish, languageMode: k.languageMode, colors: k.colors,
     handwritingImageBase64: k.handwritingImageBase64,
   };
 }

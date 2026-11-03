@@ -212,7 +212,7 @@ function addMod(k) {
     item.querySelector('.thumb').style.background = '#fffdf7';
   }
   item.querySelector('.meta b').textContent = k.displayName || '(ไม่มีชื่อ)';
-  item.querySelector('.meta .w').textContent = `${time} · ${wish ? wish.th : ''}`;
+  item.querySelector('.meta .w').textContent = `${time} · ${wish ? wish.th : (k.customWish ? '✍️ ' + k.customWish : '')}`;
   const btn = item.querySelector('button');
   if (btn) {
     btn.onclick = () => {

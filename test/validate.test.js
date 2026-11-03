@@ -24,6 +24,13 @@ test('rejects non-image data and bad colours fall back to defaults', () => {
   assert.equal(r.value.languageMode, null);
 });
 
+test('custom wishes are cleaned and only kept when no library wish is chosen', () => {
+  const r = sanitizeKrathong({ customWish: ' <i>家族が元気でありますように</i> ' + 'x'.repeat(80) });
+  assert.equal(r.value.customWish.length, 60);
+  assert.ok(!r.value.customWish.includes('<'));
+  assert.equal(sanitizeKrathong({ selectedWishId: 'success', customWish: 'abc' }).value.customWish, '');
+});
+
 test('cleanText strips markup and limits length', () => {
   assert.equal(cleanText('<b>สมชาย</b>'), 'bสมชาย/b');
   assert.equal(cleanText('a'.repeat(100)).length, 40);
