@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#070b1f">
+<meta name="robots" content="noindex">
+<title>Host · Loy Krathong</title>
+<link rel="icon" href="/assets/lotus.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Mitr:wght@400;500&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Sans+Thai+Looped:wght@400;600&family=Noto+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/three.module.js", "three/addons/": "/vendor/three/addons/" } }
+</script>
+</head>
+<body>
+  <div class="sky-bg" aria-hidden="true"><div class="moon"></div></div>
+  <div class="toast-wrap" id="toasts" aria-live="polite"></div>
+
+  <section class="pin-gate" id="gate">
+    <form class="card pin-card" id="pinForm" autocomplete="off">
+      <img src="/assets/lotus.svg" alt="" style="width:72px;height:72px;margin:0 auto 8px">
+      <div class="eyebrow">Host · ผู้ดำเนินรายการ</div>
+      <h1 class="h1">หน้าควบคุมพิธีเปิด</h1>
+      <p class="muted small" style="margin:0 0 16px">ใส่รหัส PIN ที่แสดงในหน้าต่างเซิร์ฟเวอร์ (Terminal)</p>
+      <label class="sr-only" for="pin">PIN</label>
+      <input id="pin" class="input pin-input" inputmode="numeric" maxlength="12" placeholder="••••" required>
+      <button class="btn btn-primary btn-block" style="margin-top:14px" type="submit">เข้าสู่ระบบ</button>
+      <p class="small" id="pinErr" style="color:var(--danger);min-height:1.4em;margin:10px 0 0"></p>
+    </form>
+  </section>
+
+  <main class="host-app" id="hostApp" hidden>
+    <header class="host-head">
+      <img src="/assets/lotus.svg" alt="" style="width:40px;height:40px">
+      <div>
+        <div class="h2" style="margin:0">ควบคุมพิธีลอยกระทง</div>
+        <div class="muted small">Host Control · <span id="connText">กำลังเชื่อมต่อ…</span></div>
+      </div>
+      <div class="spacer"></div>
+      <span class="chip state-badge" id="stateBadge">—</span>
+      <a class="btn btn-sm" href="/stage" target="_blank" rel="noopener">🖥️ เปิดจอใหญ่</a>
+    </header>
+
+    <div class="stat-row">
+      <div class="stat"><b id="sParticipants">0</b><span>ผู้เข้าร่วมออนไลน์</span></div>
+      <div class="stat"><b id="sStages">0</b><span>จอใหญ่ที่เชื่อม</span></div>
+      <div class="stat"><b id="sFloated">0</b><span>ลอยแล้วทั้งหมด</span></div>
+      <div class="stat"><b id="sRiver">0</b><span>อยู่บนแม่น้ำ</span></div>
+    </div>
+
+    <div class="host-grid" style="margin-top:14px">
+      <section class="card">
+        <div class="eyebrow">Opening Ceremony</div>
+        <div class="h2">🪔 กระทงปฐมฤกษ์</div>
+        <p class="muted small" style="margin:0 0 12px">สแกนกระทงต้นแบบของพิธีกร หรือใช้กระทงสีทองพร้อมข้อความ แล้ว <b>ปัดขึ้น</b> บนจอด้านล่างเพื่อเปิดงาน — มือถือของผู้เข้าร่วมจะปลดล็อกพร้อมคลื่นแสงสีทองบนจอใหญ่</p>
+        <div class="row-wrap" style="margin-bottom:12px">
+          <button class="btn btn-sm" id="hostCam">📷 สแกนกระทงต้นแบบ</button>
+          <label class="btn btn-sm" style="cursor:pointer">🖼️ เลือกรูป<input type="file" accept="image/*" hidden id="hostFile"></label>
+          <button class="btn btn-sm btn-ghost" id="hostDefault">✨ ใช้กระทงทอง</button>
+        </div>
+        <div class="row" style="margin-bottom:12px">
+          <label class="sr-only" for="signText">ข้อความบนป้าย</label>
+          <input class="input" id="signText" style="min-height:44px;font-size:16px" maxlength="24" value="ลอยกระทง 2569" placeholder="ข้อความบนป้ายกระทงทอง">
+        </div>
+        <div class="ceremony-pad" id="pad">
+          <canvas></canvas>
+          <div class="pad-ui" id="padUi"></div>
+        </div>
+      </section>
+
+      <div>
+        <section class="card">
+          <div class="eyebrow">Language Lesson</div>
+          <div class="h2">📖 สอนคำอวยพรบนจอใหญ่</div>
+          <p class="muted small" style="margin:0 0 12px">แตะเพื่อแสดงคำอวยพรภาษาไทย–ญี่ปุ่นพร้อมคำอ่านบนโปรเจกเตอร์ ใช้สอนการออกเสียงก่อนให้ทุกคนเลือกคำ</p>
+          <div class="lesson-list" id="lessons"></div>
+          <button class="btn btn-sm btn-block" style="margin-top:10px" id="hideLesson">ซ่อนบทเรียน</button>
+        </section>
+
+        <section class="card">
+          <div class="eyebrow">Stage Screen</div>
+          <div class="h2">🖥️ จอใหญ่</div>
+          <div class="row-wrap" style="margin:8px 0 12px">
+            <button class="btn btn-sm" data-ctl="qr_big">QR ใหญ่</button>
+            <button class="btn btn-sm" data-ctl="qr_small">QR เล็ก</button>
+            <button class="btn btn-sm" data-ctl="music_on">🔊 เปิดเสียง</button>
+            <button class="btn btn-sm" data-ctl="music_off">🔇 ปิดเสียง</button>
+          </div>
+          <label class="field" for="vol">ระดับเสียงเพลง</label>
+          <input type="range" id="vol" min="0" max="1" step="0.05" value="0.8" style="width:100%">
+          <div class="divider"></div>
+          <label class="field" for="joinUrl">ลิงก์สำหรับผู้เข้าร่วม (ใช้สร้าง QR บนจอใหญ่และกระดาษ)</label>
+          <div class="row">
+            <input class="input" id="joinUrl" style="min-height:44px;font-size:14px" placeholder="https://xxxx.trycloudflare.com/">
+            <button class="btn btn-sm" id="saveUrl">บันทึก</button>
+          </div>
+          <button class="btn btn-sm btn-ghost" style="margin-top:8px" id="useOrigin">ใช้ลิงก์ของหน้านี้</button>
+          <div class="row" style="margin-top:12px;gap:12px">
+            <img id="hostQr" alt="QR" style="width:96px;height:96px;border-radius:10px;background:#fff;padding:4px">
+            <a class="btn btn-sm" href="/template.html" target="_blank" rel="noopener">📄 กระดาษ A4 (มี QR)</a>
+          </div>
+        </section>
+      </div>
+
+      <section class="card" style="grid-column:1/-1">
+        <div class="row"><div><div class="eyebrow">Moderation</div><div class="h2">🛶 กระทงล่าสุด</div></div><div class="spacer"></div>
+          <button class="btn btn-sm btn-danger" id="clearRiver">ล้างแม่น้ำ</button>
+          <button class="btn btn-sm btn-danger" id="resetAll">รีเซ็ตพิธี</button></div>
+        <p class="muted small" style="margin:6px 0 12px">ถ้ามีข้อความไม่เหมาะสม กด “นำออก” เพื่อเอากระทงออกจากจอใหญ่</p>
+        <div class="mod-list" id="modList"><p class="muted small">ยังไม่มีกระทง</p></div>
+      </section>
+    </div>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/js/host.js"></script>
+</body>
+</html>

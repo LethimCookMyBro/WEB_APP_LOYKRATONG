@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loy Krathong Stage</title>
+<link rel="icon" href="/assets/lotus.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Mitr:wght@300;400;500&family=Noto+Sans+JP:wght@400;500&family=Noto+Sans+Thai+Looped:wght@400;600&family=Noto+Sans+Thai:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/three.module.js", "three/addons/": "/vendor/three/addons/" } }
+</script>
+</head>
+<body class="stage-body">
+  <canvas id="stage-canvas"></canvas>
+  <div class="stage-hud" id="hud">
+    <div class="stage-title">
+      <img src="/assets/lotus.svg" alt="">
+      <div><div class="t">ลอยกระทง</div><div class="s">ロイクラトン · Loy Krathong</div></div>
+    </div>
+    <div class="stage-counter"><b id="count">0</b><span>กระทงที่ลอยแล้ว · 流したクラトン</span></div>
+    <div class="stage-banner" id="banner"><div class="b1">พิธีเปิดงานลอยกระทง</div><div class="b2">ロイクラトン 開幕</div></div>
+    <div class="stage-waiting" id="waiting">รอพิธีเปิดจากพิธีกร…<small>まもなく開会します</small></div>
+    <div class="stage-feed" id="feed"></div>
+    <div class="stage-qr" id="qr">
+      <img id="qrImg" alt="QR">
+      <div class="q">สแกนเพื่อร่วมลอยกระทง<small>QRで参加しよう</small><div class="url" id="qrUrl"></div></div>
+    </div>
+    <div class="stage-lesson" id="lesson"></div>
+  </div>
+  <div class="stage-start" id="start">
+    <div class="box">
+      <img src="/assets/lotus.svg" alt="">
+      <div class="h1">คลิกเพื่อเริ่มจอแสดงผล</div>
+      <div class="muted" style="font-family:var(--font-ja)">クリックして開始（音声とフルスクリーン）</div>
+      <div class="muted small" style="margin-top:8px">F = เต็มจอ · M = ปิด/เปิดเสียง · Q = QR ใหญ่ · H = ซ่อนข้อความ · D = โหมดทดสอบ</div>
+    </div>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/js/stage-projection.js"></script>
+</body>
+</html>

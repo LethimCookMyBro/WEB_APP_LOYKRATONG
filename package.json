@@ -1,0 +1,31 @@
+{
+  "name": "loy-krathong-3d-web",
+  "version": "1.0.0",
+  "description": "Interactive Paper-to-3D Loy Krathong & Thai-Japanese Language Exchange",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/*.test.js",
+    "build:strokes": "node scripts/build-stroke-data.mjs",
+    "build:template": "node scripts/build-template.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LethimCookMyBro/WEB_APP_LOYKRATONG.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/LethimCookMyBro/WEB_APP_LOYKRATONG/issues"
+  },
+  "homepage": "https://github.com/LethimCookMyBro/WEB_APP_LOYKRATONG#readme",
+  "dependencies": {
+    "express": "^5.3.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.4",
+    "three": "^0.187.0"
+  },
+  "type": "module"
+}

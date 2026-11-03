@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="p1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffd3de"/><stop offset="1" stop-color="#ff7d9f"/></linearGradient>
+    <linearGradient id="p2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe7ee"/><stop offset="1" stop-color="#ff9db6"/></linearGradient>
+    <linearGradient id="lf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6fdc8c"/><stop offset="1" stop-color="#1f7a43"/></linearGradient>
+    <radialGradient id="fl" cx="0.5" cy="0.65" r="0.5"><stop offset="0" stop-color="#fffbe6"/><stop offset="0.45" stop-color="#ffd36b"/><stop offset="1" stop-color="#ff8a1f" stop-opacity="0"/></radialGradient>
+  </defs>
+  <circle cx="60" cy="30" r="20" fill="url(#fl)"/>
+  <path d="M60 14c3 6 5 10 0 18c-5-8-3-12 0-18z" fill="#fff4c9"/>
+  <rect x="57" y="31" width="6" height="22" rx="2" fill="#fff8ec"/>
+  <path d="M10 82c18 6 82 6 100 0c-6 14-30 22-50 22S16 96 10 82z" fill="url(#lf)"/>
+  <path d="M20 80c-2-14 8-26 22-30c-2 12 0 24 8 34c-12 2-24 0-30-4z" fill="url(#p1)"/>
+  <path d="M100 80c2-14-8-26-22-30c2 12 0 24-8 34c12 2 24 0 30-4z" fill="url(#p1)"/>
+  <path d="M34 84c-4-16 4-30 14-38c2 14 6 26 12 38c-10 3-20 3-26 0z" fill="url(#p2)"/>
+  <path d="M86 84c4-16-4-30-14-38c-2 14-6 26-12 38c10 3 20 3 26 0z" fill="url(#p2)"/>
+  <path d="M60 44c10 10 14 26 8 42h-16c-6-16-2-32 8-42z" fill="url(#p1)"/>
+</svg>

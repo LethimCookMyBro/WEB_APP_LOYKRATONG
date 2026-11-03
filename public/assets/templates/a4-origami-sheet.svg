@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 297" width="210mm" height="297mm" font-family="'Noto Sans Thai', 'Noto Sans JP', sans-serif">
+  <style>
+    .cut { fill: none; stroke: #3b3226; stroke-width: 0.45; stroke-linejoin: round; }
+    .tab { fill: #f1ece3; }
+    .fold { fill: none; stroke: #8f8270; stroke-width: 0.35; stroke-dasharray: 1.6 1.2; }
+    .art { fill: none; stroke: #8f8270; stroke-width: 0.3; }
+    .thin { stroke-width: 0.22; stroke: #b3a796; }
+    .tablbl { font-size: 2.6px; fill: #9a8f80; text-anchor: middle; }
+    .boxlbl { font-size: 2.3px; fill: #e4e0d8; }
+    .zlbl { font-size: 2.6px; fill: #b3a796; text-anchor: middle; }
+    .h { font-size: 6.2px; fill: #3b3226; font-weight: 600; }
+    .hs { font-size: 3.4px; fill: #7b705f; }
+    .num { font-size: 3.4px; fill: #2b1a00; font-weight: 700; text-anchor: middle; }
+    .st { font-size: 3.3px; fill: #3b3226; }
+    .sj { font-size: 2.8px; fill: #7b705f; }
+  </style>
+  <rect width="210" height="297" fill="#fff"/>
+  <text x="14" y="16" class="h">กระทงกระดาษ ลอยกระทง 3 มิติ · 紙のクラトン</text>
+  <text x="14" y="21.5" class="hs">Universal Template — ระบายสี เขียน ตัด พับ แล้วถ่ายภาพ · 色をぬって、書いて、切って、折って、撮影</text>
+  <!-- floor -->
+  <rect x="60" y="68" width="90" height="90" fill="none" stroke="#8f8270" stroke-width="0.01"/>
+  <ellipse cx="76.5" cy="72" rx="3.2" ry="1.5" transform="rotate(0 76.5 72)" class="art thin"/>
+<ellipse cx="76.5" cy="154" rx="3.2" ry="1.5" transform="rotate(0 76.5 154)" class="art thin"/>
+<ellipse cx="86" cy="72" rx="3.2" ry="1.5" transform="rotate(0 86 72)" class="art thin"/>
+<ellipse cx="86" cy="154" rx="3.2" ry="1.5" transform="rotate(0 86 154)" class="art thin"/>
+<ellipse cx="95.5" cy="72" rx="3.2" ry="1.5" transform="rotate(0 95.5 72)" class="art thin"/>
+<ellipse cx="95.5" cy="154" rx="3.2" ry="1.5" transform="rotate(0 95.5 154)" class="art thin"/>
+<ellipse cx="114.5" cy="72" rx="3.2" ry="1.5" transform="rotate(0 114.5 72)" class="art thin"/>
+<ellipse cx="114.5" cy="154" rx="3.2" ry="1.5" transform="rotate(0 114.5 154)" class="art thin"/>
+<ellipse cx="124" cy="72" rx="3.2" ry="1.5" transform="rotate(0 124 72)" class="art thin"/>
+<ellipse cx="124" cy="154" rx="3.2" ry="1.5" transform="rotate(0 124 154)" class="art thin"/>
+<ellipse cx="133.5" cy="72" rx="3.2" ry="1.5" transform="rotate(0 133.5 72)" class="art thin"/>
+<ellipse cx="133.5" cy="154" rx="3.2" ry="1.5" transform="rotate(0 133.5 154)" class="art thin"/>
+<ellipse cx="64.5" cy="103" rx="3.2" ry="1.5" transform="rotate(90 64.5 103)" class="art thin"/>
+<ellipse cx="145.5" cy="103" rx="3.2" ry="1.5" transform="rotate(90 145.5 103)" class="art thin"/>
+<ellipse cx="64.5" cy="113" rx="3.2" ry="1.5" transform="rotate(90 64.5 113)" class="art thin"/>
+<ellipse cx="145.5" cy="113" rx="3.2" ry="1.5" transform="rotate(90 145.5 113)" class="art thin"/>
+<ellipse cx="64.5" cy="123" rx="3.2" ry="1.5" transform="rotate(90 64.5 123)" class="art thin"/>
+<ellipse cx="145.5" cy="123" rx="3.2" ry="1.5" transform="rotate(90 145.5 123)" class="art thin"/>
+<circle cx="109.34" cy="78.00" r="2.66" class="art"/><circle cx="108.51" cy="80.55" r="2.66" class="art"/><circle cx="106.34" cy="82.13" r="2.66" class="art"/><circle cx="103.66" cy="82.13" r="2.66" class="art"/><circle cx="101.49" cy="80.55" r="2.66" class="art"/><circle cx="100.66" cy="78.00" r="2.66" class="art"/><circle cx="101.49" cy="75.45" r="2.66" class="art"/><circle cx="103.66" cy="73.87" r="2.66" class="art"/><circle cx="106.34" cy="73.87" r="2.66" class="art"/><circle cx="108.51" cy="75.45" r="2.66" class="art"/><circle cx="105" cy="78" r="2.4499999999999997" class="art"/>
+<circle cx="109.34" cy="148.00" r="2.66" class="art"/><circle cx="108.51" cy="150.55" r="2.66" class="art"/><circle cx="106.34" cy="152.13" r="2.66" class="art"/><circle cx="103.66" cy="152.13" r="2.66" class="art"/><circle cx="101.49" cy="150.55" r="2.66" class="art"/><circle cx="100.66" cy="148.00" r="2.66" class="art"/><circle cx="101.49" cy="145.45" r="2.66" class="art"/><circle cx="103.66" cy="143.87" r="2.66" class="art"/><circle cx="106.34" cy="143.87" r="2.66" class="art"/><circle cx="108.51" cy="145.45" r="2.66" class="art"/><circle cx="105" cy="148" r="2.4499999999999997" class="art"/>
+  <path d="M60.00,68.00 L150.00,68.00" class="fold"/>
+<path d="M48.00,44.00 L162.00,44.00" class="fold"/>
+<path d="M60.00,68.00 L48.00,44.00" class="cut"/>
+<path d="M150.00,68.00 L152.68,62.63 L162.52,58.61 L166.92,49.81 L161.55,44.89 L162.00,44.00" class="cut tab"/>
+<path d="M152.68,62.63 L161.55,44.89" class="fold"/>
+<text x="160.91931576789773" y="54.98755264040547" class="tablbl">กาว</text>
+<path d="M61.00,67.00 C60.00,55.00 69.00,49.00 75.00,45.50 C81.00,49.00 90.00,55.00 89.00,67.00" class="art"/>
+<path d="M75.00,65.00 L75.00,49.00" class="art thin"/>
+<path d="M91.00,67.00 C90.00,55.00 99.00,49.00 105.00,45.50 C111.00,49.00 120.00,55.00 119.00,67.00" class="art"/>
+<path d="M105.00,65.00 L105.00,49.00" class="art thin"/>
+<path d="M121.00,67.00 C120.00,55.00 129.00,49.00 135.00,45.50 C141.00,49.00 150.00,55.00 149.00,67.00" class="art"/>
+<path d="M135.00,65.00 L135.00,49.00" class="art thin"/>
+<path d="M56.00,43.00 C57.00,35.00 63.00,30.00 67.00,27.00 C71.00,30.00 77.00,35.00 78.00,43.00" class="art thin"/>
+<path d="M94.00,43.00 C95.00,35.00 101.00,30.00 105.00,27.00 C109.00,30.00 115.00,35.00 116.00,43.00" class="art thin"/>
+<path d="M132.00,43.00 C133.00,35.00 139.00,30.00 143.00,27.00 C147.00,30.00 153.00,35.00 154.00,43.00" class="art thin"/>
+<path d="M48.00,44.00 L48.00,44.00 C48.00,33.00 61.00,27.00 67.00,21.50 C73.00,27.00 86.00,33.00 86.00,44.00 L86.00,44.00 C86.00,33.00 99.00,27.00 105.00,21.50 C111.00,27.00 124.00,33.00 124.00,44.00 L124.00,44.00 C124.00,33.00 137.00,27.00 143.00,21.50 C149.00,27.00 162.00,33.00 162.00,44.00" class="cut" fill="none"/>
+<path d="M150.00,68.00 L150.00,158.00" class="fold"/>
+<path d="M174.00,56.00 L174.00,170.00" class="fold"/>
+<path d="M150.00,68.00 L174.00,56.00" class="cut"/>
+<path d="M150.00,158.00 L155.37,160.68 L159.39,170.52 L168.19,174.92 L173.11,169.55 L174.00,170.00" class="cut tab"/>
+<path d="M155.37,160.68 L173.11,169.55" class="fold"/>
+<text x="164.01244735959455" y="169.91931576789773" class="tablbl">กาว</text>
+<path d="M151.00,69.00 C163.00,68.00 169.00,77.00 172.50,83.00 C169.00,89.00 163.00,98.00 151.00,97.00" class="art"/>
+<path d="M153.00,83.00 L169.00,83.00" class="art thin"/>
+<path d="M151.00,99.00 C163.00,98.00 169.00,107.00 172.50,113.00 C169.00,119.00 163.00,128.00 151.00,127.00" class="art"/>
+<path d="M153.00,113.00 L169.00,113.00" class="art thin"/>
+<path d="M151.00,129.00 C163.00,128.00 169.00,137.00 172.50,143.00 C169.00,149.00 163.00,158.00 151.00,157.00" class="art"/>
+<path d="M153.00,143.00 L169.00,143.00" class="art thin"/>
+<path d="M175.00,64.00 C183.00,65.00 188.00,71.00 191.00,75.00 C188.00,79.00 183.00,85.00 175.00,86.00" class="art thin"/>
+<path d="M175.00,102.00 C183.00,103.00 188.00,109.00 191.00,113.00 C188.00,117.00 183.00,123.00 175.00,124.00" class="art thin"/>
+<path d="M175.00,140.00 C183.00,141.00 188.00,147.00 191.00,151.00 C188.00,155.00 183.00,161.00 175.00,162.00" class="art thin"/>
+<path d="M174.00,56.00 L174.00,56.00 C185.00,56.00 191.00,69.00 196.50,75.00 C191.00,81.00 185.00,94.00 174.00,94.00 L174.00,94.00 C185.00,94.00 191.00,107.00 196.50,113.00 C191.00,119.00 185.00,132.00 174.00,132.00 L174.00,132.00 C185.00,132.00 191.00,145.00 196.50,151.00 C191.00,157.00 185.00,170.00 174.00,170.00" class="cut" fill="none"/>
+<path d="M150.00,158.00 L60.00,158.00" class="fold"/>
+<path d="M162.00,182.00 L48.00,182.00" class="fold"/>
+<path d="M150.00,158.00 L162.00,182.00" class="cut"/>
+<path d="M60.00,158.00 L57.32,163.37 L47.48,167.39 L43.08,176.19 L48.45,181.11 L48.00,182.00" class="cut tab"/>
+<path d="M57.32,163.37 L48.45,181.11" class="fold"/>
+<text x="49.080684232102264" y="173.01244735959455" class="tablbl">กาว</text>
+<path d="M149.00,159.00 C150.00,171.00 141.00,177.00 135.00,180.50 C129.00,177.00 120.00,171.00 121.00,159.00" class="art"/>
+<path d="M135.00,161.00 L135.00,177.00" class="art thin"/>
+<path d="M119.00,159.00 C120.00,171.00 111.00,177.00 105.00,180.50 C99.00,177.00 90.00,171.00 91.00,159.00" class="art"/>
+<path d="M105.00,161.00 L105.00,177.00" class="art thin"/>
+<path d="M89.00,159.00 C90.00,171.00 81.00,177.00 75.00,180.50 C69.00,177.00 60.00,171.00 61.00,159.00" class="art"/>
+<path d="M75.00,161.00 L75.00,177.00" class="art thin"/>
+<path d="M154.00,183.00 C153.00,191.00 147.00,196.00 143.00,199.00 C139.00,196.00 133.00,191.00 132.00,183.00" class="art thin"/>
+<path d="M116.00,183.00 C115.00,191.00 109.00,196.00 105.00,199.00 C101.00,196.00 95.00,191.00 94.00,183.00" class="art thin"/>
+<path d="M78.00,183.00 C77.00,191.00 71.00,196.00 67.00,199.00 C63.00,196.00 57.00,191.00 56.00,183.00" class="art thin"/>
+<path d="M162.00,182.00 L162.00,182.00 C162.00,193.00 149.00,199.00 143.00,204.50 C137.00,199.00 124.00,193.00 124.00,182.00 L124.00,182.00 C124.00,193.00 111.00,199.00 105.00,204.50 C99.00,199.00 86.00,193.00 86.00,182.00 L86.00,182.00 C86.00,193.00 73.00,199.00 67.00,204.50 C61.00,199.00 48.00,193.00 48.00,182.00" class="cut" fill="none"/>
+<path d="M60.00,158.00 L60.00,68.00" class="fold"/>
+<path d="M36.00,170.00 L36.00,56.00" class="fold"/>
+<path d="M60.00,158.00 L36.00,170.00" class="cut"/>
+<path d="M60.00,68.00 L54.63,65.32 L50.61,55.48 L41.81,51.08 L36.89,56.45 L36.00,56.00" class="cut tab"/>
+<path d="M54.63,65.32 L36.89,56.45" class="fold"/>
+<text x="45.98755264040547" y="58.080684232102264" class="tablbl">กาว</text>
+<path d="M59.00,157.00 C47.00,158.00 41.00,149.00 37.50,143.00 C41.00,137.00 47.00,128.00 59.00,129.00" class="art"/>
+<path d="M57.00,143.00 L41.00,143.00" class="art thin"/>
+<path d="M59.00,127.00 C47.00,128.00 41.00,119.00 37.50,113.00 C41.00,107.00 47.00,98.00 59.00,99.00" class="art"/>
+<path d="M57.00,113.00 L41.00,113.00" class="art thin"/>
+<path d="M59.00,97.00 C47.00,98.00 41.00,89.00 37.50,83.00 C41.00,77.00 47.00,68.00 59.00,69.00" class="art"/>
+<path d="M57.00,83.00 L41.00,83.00" class="art thin"/>
+<path d="M35.00,162.00 C27.00,161.00 22.00,155.00 19.00,151.00 C22.00,147.00 27.00,141.00 35.00,140.00" class="art thin"/>
+<path d="M35.00,124.00 C27.00,123.00 22.00,117.00 19.00,113.00 C22.00,109.00 27.00,103.00 35.00,102.00" class="art thin"/>
+<path d="M35.00,86.00 C27.00,85.00 22.00,79.00 19.00,75.00 C22.00,71.00 27.00,65.00 35.00,64.00" class="art thin"/>
+<path d="M36.00,170.00 L36.00,170.00 C25.00,170.00 19.00,157.00 13.50,151.00 C19.00,145.00 25.00,132.00 36.00,132.00 L36.00,132.00 C25.00,132.00 19.00,119.00 13.50,113.00 C19.00,107.00 25.00,94.00 36.00,94.00 L36.00,94.00 C25.00,94.00 19.00,81.00 13.50,75.00 C19.00,69.00 25.00,56.00 36.00,56.00" class="cut" fill="none"/>
+  <rect x="69" y="88" width="72" height="50" rx="1.5" fill="#fff" stroke="#cdc4b5" stroke-width="0.3" stroke-dasharray="1.2 1"/>
+<text x="71" y="92" class="boxlbl">ชื่อ · なまえ</text>
+<text x="71" y="115" class="boxlbl">คำอธิษฐาน · ねがいごと</text>
+<rect x="62" y="81" width="6" height="6" fill="#000"/>
+<rect x="142" y="81" width="6" height="6" fill="#000"/>
+<rect x="142" y="139" width="6" height="6" fill="#000"/>
+<rect x="62" y="139" width="6" height="6" fill="#000"/>
+  <text x="105" y="57" class="zlbl">กลีบใน · 内側の花びら</text>
+  <text x="105" y="39" class="zlbl">กลีบนอก · 外側の花びら</text>
+  <text x="81" y="83" class="zlbl">ฐาน · 台</text>
+  <!-- legend -->
+  <g transform="translate(14 206)">
+    <path d="M0 0 H10" class="cut"/><text x="12" y="1" class="sj">ตัด · 切る</text>
+    <path d="M34 0 H44" class="fold"/><text x="46" y="1" class="sj">พับ · 折る</text>
+    <rect x="70" y="-2.5" width="5" height="5" fill="#000"/><text x="77" y="1" class="sj">จุดมุมสำหรับกล้อง ห้ามระบายทับ · カメラ用マーク（ぬらない）</text>
+  </g>
+  <g>
+      <circle cx="16" cy="220.8" r="3.1" fill="#f5c66a"/>
+      <text x="16" y="222" class="num">1</text>
+      <text x="22" y="221" class="st">ระบายสีกลีบ ฐาน และดอกไม้ (สีเข้มถ่ายติดชัดกว่า)</text>
+      <text x="22" y="225.6" class="sj">花びら・台・花に色をぬる（濃い色がおすすめ）</text>
+    </g>
+<g>
+      <circle cx="16" cy="233.20000000000002" r="3.1" fill="#f5c66a"/>
+      <text x="16" y="234.4" class="num">2</text>
+      <text x="22" y="233.4" class="st">เขียนชื่อและคำอธิษฐานในกรอบกลาง ด้วยปากกาสีเข้ม</text>
+      <text x="22" y="238" class="sj">まん中の枠に名前とねがいごとを濃いペンで書く</text>
+    </g>
+<g>
+      <circle cx="16" cy="245.60000000000002" r="3.1" fill="#f5c66a"/>
+      <text x="16" y="246.8" class="num">3</text>
+      <text x="22" y="245.8" class="st">ตัดตามเส้นทึบ</text>
+      <text x="22" y="250.4" class="sj">実線にそって切る</text>
+    </g>
+<g>
+      <circle cx="16" cy="258" r="3.1" fill="#f5c66a"/>
+      <text x="16" y="259.2" class="num">4</text>
+      <text x="22" y="258.2" class="st">พับผนัง 4 ด้านขึ้นตามเส้นประ แล้วทากาวที่แถบ “กาว”</text>
+      <text x="22" y="262.8" class="sj">点線で壁を折り上げ、「กาว」(のりしろ)をはる</text>
+    </g>
+<g>
+      <circle cx="16" cy="270.40000000000003" r="3.1" fill="#f5c66a"/>
+      <text x="16" y="271.6" class="num">5</text>
+      <text x="22" y="270.6" class="st">พับปลายกลีบออกด้านนอก แล้วถ่ายภาพจากด้านบน</text>
+      <text x="22" y="275.20000000000005" class="sj">花びらの先を外に折り、真上から撮影する</text>
+    </g>
+  <rect x="160" y="216" width="36" height="36" rx="2" fill="none" stroke="#cdc4b5" stroke-dasharray="2 1.5"/><text x="178" y="235" class="sj" text-anchor="middle">QR ที่จอใหญ่</text>
+  <text x="178" y="256" class="sj" text-anchor="middle">สแกนเพื่อเข้าร่วม · QRで参加</text>
+  
+  <text x="105" y="290" class="sj" text-anchor="middle">พิมพ์ขนาดจริง 100% (ไม่ย่อ/ขยาย) บนกระดาษ A4 · A4・実寸（100%）で印刷してください</text>
+</svg>
