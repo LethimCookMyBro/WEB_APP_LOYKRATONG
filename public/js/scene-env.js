@@ -287,7 +287,7 @@ export function createLanterns({ count = 220, area = { x: 260, zNear: -40, zFar:
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('data', new THREE.BufferAttribute(data, 4));
-  const uniforms = { uTime: { value: 0 }, uAmount: { value: 0.08 }, uBright: { value: 0.4 }, uHeight: { value: height }, uScale: { value: 2400 * Math.min(window.devicePixelRatio || 1, 2) } };
+  const uniforms = { uTime: { value: 0 }, uAmount: { value: 0.08 }, uBright: { value: 0.4 }, uHeight: { value: height }, uScale: { value: 1500 * Math.min(window.devicePixelRatio || 1, 2) } };
   const pts = new THREE.Points(geo, new THREE.ShaderMaterial({
     uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
     vertexShader: /* glsl */`
