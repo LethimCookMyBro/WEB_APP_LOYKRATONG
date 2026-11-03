@@ -30,5 +30,8 @@
   "type": "module",
   "devDependencies": {
     "socket.io-client": "^4.8.4"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

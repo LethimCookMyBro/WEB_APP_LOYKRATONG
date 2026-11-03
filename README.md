@@ -26,6 +26,21 @@ HOST_PIN=2569 npm start
 
 หน้าต่าง Terminal จะแสดง URL ทั้งหมดและรหัส **HOST PIN** (ถ้าไม่ตั้ง `HOST_PIN` ระบบจะสุ่มให้ทุกครั้งที่เปิดเซิร์ฟเวอร์)
 
+### ☁️ Deploy บน Railway (แนะนำ — ได้ HTTPS ทันที กล้องมือถือใช้ได้)
+1. เข้า [railway.com](https://railway.com) → **New Project** → **Deploy from GitHub repo** → เลือก `WEB_APP_LOYKRATONG` (branch `main`)
+2. ไปที่ service → **Variables** → เพิ่ม `HOST_PIN` = รหัสที่ต้องการ (เช่น `2569`)
+   ถ้าไม่ตั้ง ระบบจะสุ่ม PIN ใหม่ทุกครั้งที่รีสตาร์ต และต้องไปดูใน **Deploy Logs**
+3. ไปที่ **Settings → Networking → Generate Domain** เพื่อรับลิงก์ `https://xxxx.up.railway.app`
+4. เสร็จแล้ว: ผู้เข้าร่วมเข้า `https://xxxx.up.railway.app/`, พิธีกรเข้า `/host`, โปรเจกเตอร์เปิด `/stage`
+   QR บนจอใหญ่และกระดาษจะใช้โดเมนของ Railway ให้อัตโนมัติ (อ่านจาก `RAILWAY_PUBLIC_DOMAIN`)
+
+ไฟล์ `railway.json` ตั้งค่าไว้แล้ว: start ด้วย `npm start`, health check ที่ `/healthz`, รีสตาร์ตเองถ้าล่ม, และใช้ **1 replica** เท่านั้น
+ข้อควรรู้:
+- สถานะพิธีและกระทงบนแม่น้ำเก็บในหน่วยความจำของเซิร์ฟเวอร์ ถ้า Railway รีสตาร์ตหรือ deploy ใหม่ระหว่างงาน พิธีจะกลับเป็น “ยังไม่เปิด” (พิธีกรกดเปิดใหม่ได้) — **อย่า deploy ระหว่างงาน**
+- อย่าเพิ่มจำนวน replica เกิน 1 เพราะแต่ละเครื่องจะมีสถานะแยกกัน
+- Railway ส่ง push ใหม่ใน `main` ไป deploy อัตโนมัติ
+- เมื่อใช้ Railway ไม่ต้องใช้ Cloudflare Tunnel
+
 ### เปิดให้มือถือเข้าผ่านอินเทอร์เน็ต (Cloudflare Tunnel)
 กล้องบนมือถือใช้ได้เฉพาะเว็บที่เป็น **HTTPS** (หรือ `localhost`) จึงควรเปิดผ่าน Cloudflare Tunnel:
 
@@ -56,7 +71,7 @@ cloudflared tunnel --url http://localhost:3000
 | :--- | :--- | :--- |
 | `PORT` | `3000` | พอร์ตของเซิร์ฟเวอร์ |
 | `HOST_PIN` | สุ่ม 4 หลัก | รหัสเข้าหน้า `/host` |
-| `PUBLIC_URL` | `http://<LAN IP>:PORT/` | ลิงก์ที่ใช้สร้าง QR |
+| `PUBLIC_URL` | `https://$RAILWAY_PUBLIC_DOMAIN/` บน Railway, ไม่งั้น `http://<LAN IP>:PORT/` | ลิงก์ที่ใช้สร้าง QR |
 | `UNLOCK_DELAY_MS` | `6500` | เวลาหลังปัดเปิดพิธีจนถึงปลดล็อกมือถือ (ให้ตรงกับคลื่นแสงสีทอง) |
 | `SPAWN_COOLDOWN_MS` | `8000` | เวลาขั้นต่ำระหว่างการส่งกระทงแต่ละครั้งของมือถือเครื่องเดียว |
 | `RIVER_LIMIT` | `60` | จำนวนกระทงล่าสุดที่เก็บไว้ (ใช้คืนสภาพเมื่อรีเฟรชจอใหญ่) |

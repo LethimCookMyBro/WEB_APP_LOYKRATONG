@@ -38,7 +38,9 @@ const state = {
   river: [], // most recent krathongs (for stage reloads)
   floated: 0,
   lesson: null,
-  joinUrl: process.env.PUBLIC_URL || `http://${lanAddress()}:${PORT}/`,
+  // PUBLIC_URL wins; on Railway the public domain is provided automatically
+  joinUrl: process.env.PUBLIC_URL
+    || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/` : `http://${lanAddress()}:${PORT}/`),
 };
 
 const app = express();
@@ -53,6 +55,8 @@ app.use((req, res, next) => {
 app.use('/vendor/three/addons', express.static(path.join(__dirname, 'node_modules/three/examples/jsm'), { maxAge: '7d' }));
 app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules/three/build'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
+
+app.get('/healthz', (req, res) => res.json({ ok: true, uptime: Math.round(process.uptime()) }));
 
 app.get('/api/config', (req, res) => {
   res.json({ joinUrl: state.joinUrl, opened: state.opened });
