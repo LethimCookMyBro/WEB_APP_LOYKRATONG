@@ -55,9 +55,9 @@
       <section class="card">
         <div class="eyebrow">Opening Ceremony</div>
         <div class="h2">🪔 กระทงปฐมฤกษ์</div>
-        <p class="muted small" style="margin:0 0 12px">สแกนกระทงต้นแบบของพิธีกร หรือใช้กระทงสีทองพร้อมข้อความ แล้ว <b>ปัดขึ้น</b> บนจอด้านล่างเพื่อเปิดงาน — มือถือของผู้เข้าร่วมจะปลดล็อกพร้อมคลื่นแสงสีทองบนจอใหญ่</p>
+        <p class="muted small" style="margin:0 0 12px">ถ่ายกระดาษที่พิธีกรเขียนข้อความเปิดงาน หรือใช้กระทงสีทองพร้อมข้อความ แล้ว <b>ปัดขึ้น</b> บนจอด้านล่างเพื่อเปิดงาน — มือถือของผู้เข้าร่วมจะปลดล็อกพร้อมคลื่นแสงสีทองบนจอใหญ่</p>
         <div class="row-wrap" style="margin-bottom:12px">
-          <button class="btn btn-sm" id="hostCam">📷 สแกนกระทงต้นแบบ</button>
+          <button class="btn btn-sm" id="hostCam">📷 ถ่ายกระดาษข้อความ</button>
           <label class="btn btn-sm" style="cursor:pointer">🖼️ เลือกรูป<input type="file" accept="image/*" hidden id="hostFile"></label>
           <button class="btn btn-sm btn-ghost" id="hostDefault">✨ ใช้กระทงทอง</button>
         </div>
@@ -108,7 +108,7 @@
             <button class="btn btn-sm" data-ctl="labels_off">ซ่อน</button>
           </div>
           <div class="divider"></div>
-          <label class="field" for="joinUrl">ลิงก์สำหรับผู้เข้าร่วม (ใช้สร้าง QR บนจอใหญ่และกระดาษ)</label>
+          <label class="field" for="joinUrl">ลิงก์สำหรับผู้เข้าร่วม (ใช้สร้าง QR บนจอใหญ่)</label>
           <div class="row">
             <input class="input" id="joinUrl" style="min-height:44px;font-size:14px" placeholder="https://xxxx.trycloudflare.com/">
             <button class="btn btn-sm" id="saveUrl">บันทึก</button>
@@ -116,7 +116,6 @@
           <button class="btn btn-sm btn-ghost" style="margin-top:8px" id="useOrigin">ใช้ลิงก์ของหน้านี้</button>
           <div class="row" style="margin-top:12px;gap:12px">
             <img id="hostQr" alt="QR" style="width:96px;height:96px;border-radius:10px;background:#fff;padding:4px">
-            <a class="btn btn-sm" href="/template.html" target="_blank" rel="noopener">📄 กระดาษ A4 (มี QR)</a>
           </div>
         </section>
       </div>

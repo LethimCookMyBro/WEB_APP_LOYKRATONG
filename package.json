@@ -7,8 +7,7 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test test/*.test.js",
-    "build:strokes": "node scripts/build-stroke-data.mjs",
-    "build:template": "node scripts/build-template.mjs"
+    "build:strokes": "node scripts/build-stroke-data.mjs"
   },
   "repository": {
     "type": "git",

@@ -1,5 +1,6 @@
-// capture-ui.js — camera with overlay guide + live corner detection, photo upload,
-// and the 4-corner adjust screen. Shared by the participant and host pages.
+// capture-ui.js — camera with a live outline of the detected sheet of paper,
+// photo upload, and the 4-corner adjust screen. Shared by the participant and
+// host pages. Works with any plain paper (no printed template needed).
 //
 // opts = { strings, defaults, onResult(result), toast(msg, type), vibrate(pattern) }
 // result = { dataURL, colors, found, inkRatio, source }
@@ -17,15 +18,15 @@ export async function captureFromFile(file, opts) {
     await img.decode();
     const canvas = IP.toCanvas(img, 2000);
     URL.revokeObjectURL(url);
-    let det = IP.findMarkersGlobal(canvas);
-    if (det) det = IP.detectMarkers(canvas, det.points); // refine at full resolution
-    else det = IP.completeQuad(IP.detectMarkers(canvas, IP.defaultQuad(canvas.width, canvas.height, 0.45)));
+    const det = IP.findPaper(canvas) || notFound(canvas);
     openAdjust(canvas, det, 'upload', opts);
   } catch (e) {
     console.error(e);
     (opts.toast || noop)(opts.strings.error, 'err');
   }
 }
+
+const notFound = (canvas) => ({ points: IP.defaultQuad(canvas.width, canvas.height), found: [false, false, false, false], all: false });
 
 let stream = null;
 function stopStream() { stream?.getTracks().forEach((tr) => tr.stop()); stream = null; }
@@ -42,7 +43,7 @@ export async function startCamera(opts) {
     <div class="camera-bottom">
       <label class="btn btn-sm" style="cursor:pointer" aria-label="upload">🖼️<input type="file" accept="image/*" hidden></label>
       <button class="shutter" aria-label="${esc(S.shoot)}" disabled></button>
-      <span class="chip" data-status style="min-width:64px;justify-content:center">0/4</span>
+      <span class="chip" data-status style="min-width:64px;justify-content:center">…</span>
     </div>
   </div>`);
   document.body.appendChild(view);
@@ -67,35 +68,32 @@ export async function startCamera(opts) {
   await new Promise((r) => (video.videoWidth ? r() : video.addEventListener('loadedmetadata', r, { once: true })));
   shutter.disabled = false;
 
-  // guide rectangle (marker rectangle) in screen px
-  const guide = () => {
+  // video px -> screen px (video uses object-fit: cover)
+  const toScreen = (pts) => {
     const w = stage.clientWidth; const hh = stage.clientHeight;
-    let gw = w * 0.46; let gh = gw / IP.MARKER_ASPECT;
-    if (gh > hh * 0.4) { gh = hh * 0.4; gw = gh * IP.MARKER_ASPECT; }
-    const cx = w / 2; const cy = hh * 0.47;
-    return { w, h: hh, cx, cy, gw, gh, quad: [[cx - gw / 2, cy - gh / 2], [cx + gw / 2, cy - gh / 2], [cx + gw / 2, cy + gh / 2], [cx - gw / 2, cy + gh / 2]] };
-  };
-  // screen px -> video px (video uses object-fit: cover)
-  const toVideo = (g, scaleTo = 1) => {
     const vw = video.videoWidth; const vh = video.videoHeight;
-    const s = Math.max(g.w / vw, g.h / vh);
-    const ox = (g.w - vw * s) / 2; const oy = (g.h - vh * s) / 2;
-    return g.quad.map(([x, y]) => [((x - ox) / s) * scaleTo, ((y - oy) / s) * scaleTo]);
+    const sc = Math.max(w / vw, hh / vh);
+    const ox = (w - vw * sc) / 2; const oy = (hh - vh * sc) / 2;
+    return pts.map(([x, y]) => [ox + x * sc, oy + y * sc]);
   };
-  let found = [false, false, false, false];
+  let quad = null; // detected paper corners in video px
   function drawOverlay() {
-    const g = guide();
-    svg.setAttribute('viewBox', `0 0 ${g.w} ${g.h}`);
-    const r = g.gw * 1.02;
-    const ms = g.gw * (IP.TEMPLATE.markerSize / IP.TEMPLATE.markerRect.w) * 2.2;
-    const all = found.every(Boolean);
+    const w = stage.clientWidth; const hh = stage.clientHeight;
+    svg.setAttribute('viewBox', `0 0 ${w} ${hh}`);
+    if (!quad) {
+      // hint frame: an A4-ish rectangle
+      let gw = w * 0.7; let gh = gw * 1.32;
+      if (gh > hh * 0.7) { gh = hh * 0.7; gw = gh / 1.32; }
+      svg.innerHTML = `<rect x="${(w - gw) / 2}" y="${(hh - gh) / 2 - 10}" width="${gw}" height="${gh}" rx="10" fill="none" stroke="#ffe1a1" stroke-width="2" stroke-dasharray="10 8" opacity=".75"/>`;
+      return;
+    }
+    const sp = toScreen(quad);
+    const d = sp.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ') + 'Z';
     svg.innerHTML = `
-      <defs><mask id="camMask"><rect width="${g.w}" height="${g.h}" fill="#fff"/><circle cx="${g.cx}" cy="${g.cy}" r="${r}" fill="#000"/></mask></defs>
-      <rect width="${g.w}" height="${g.h}" fill="rgba(3,5,18,.55)" mask="url(#camMask)"/>
-      <circle cx="${g.cx}" cy="${g.cy}" r="${r}" fill="none" stroke="${all ? '#5fd3b3' : '#ff8fab'}" stroke-opacity=".75" stroke-width="2" stroke-dasharray="8 8"/>
-      <rect x="${g.cx - g.gw / 2}" y="${g.cy - g.gh / 2}" width="${g.gw}" height="${g.gh}" fill="none" stroke="#ffe1a1" stroke-width="1.5" stroke-dasharray="6 6" opacity=".8"/>
-      ${g.quad.map(([x, y], i) => `<rect x="${x - ms / 2}" y="${y - ms / 2}" width="${ms}" height="${ms}" rx="4" fill="${found[i] ? 'rgba(95,211,179,.35)' : 'none'}" stroke="${found[i] ? '#5fd3b3' : '#fff'}" stroke-width="3"/>`).join('')}
-      ${all ? `<text x="${g.cx}" y="${g.cy + r + 28}" fill="#c9ffe9" font-size="15" text-anchor="middle" font-family="sans-serif">✓ ${esc(S.shoot)}</text>` : ''}`;
+      <defs><mask id="camMask"><rect width="${w}" height="${hh}" fill="#fff"/><path d="${d}" fill="#000"/></mask></defs>
+      <rect width="${w}" height="${hh}" fill="rgba(3,5,18,.45)" mask="url(#camMask)"/>
+      <path d="${d}" fill="rgba(95,211,179,.08)" stroke="#5fd3b3" stroke-width="3" stroke-linejoin="round"/>
+      ${sp.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="7" fill="#5fd3b3"/>`).join('')}`;
   }
   drawOverlay();
   window.addEventListener('resize', onResize);
@@ -103,26 +101,20 @@ export async function startCamera(opts) {
   let readyStreak = 0;
   loop = setInterval(() => {
     if (closed || !video.videoWidth) return;
-    const s = Math.min(1, 720 / Math.max(video.videoWidth, video.videoHeight));
-    small.width = Math.round(video.videoWidth * s); small.height = Math.round(video.videoHeight * s);
+    const sc = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight));
+    small.width = Math.round(video.videoWidth * sc); small.height = Math.round(video.videoHeight * sc);
     small.getContext('2d', { willReadFrequently: true }).drawImage(video, 0, 0, small.width, small.height);
-    const det = IP.detectMarkers(small, toVideo(guide(), s));
-    found = det.found;
-    const n = found.filter(Boolean).length;
-    status.textContent = `${n}/4`;
-    status.className = 'chip ' + (n === 4 ? 'ok' : '');
-    if (n === 4) { if (++readyStreak === 2) vibrate(20); } else readyStreak = 0;
-    shutter.style.boxShadow = n === 4 ? '0 0 0 6px rgba(95,211,179,.55), 0 0 30px rgba(95,211,179,.6)' : '';
+    const det = IP.findPaper(small, 240);
+    quad = det ? det.points.map(([x, y]) => [x / sc, y / sc]) : null;
+    status.textContent = quad ? '✓' : '…';
+    status.className = 'chip ' + (quad ? 'ok' : '');
+    if (quad) { if (++readyStreak === 2) vibrate(20); } else readyStreak = 0;
+    shutter.style.boxShadow = quad ? '0 0 0 6px rgba(95,211,179,.55), 0 0 30px rgba(95,211,179,.6)' : '';
     drawOverlay();
-  }, 320);
+  }, 300);
   shutter.onclick = () => {
     const canvas = IP.toCanvas(video, 2000);
-    const scale = canvas.width / video.videoWidth;
-    let det = IP.detectMarkers(canvas, toVideo(guide(), scale));
-    if (!det.all) {
-      const global = IP.findMarkersGlobal(canvas);
-      det = global ? IP.detectMarkers(canvas, global.points) : IP.completeQuad(det);
-    }
+    const det = IP.findPaper(canvas) || notFound(canvas);
     vibrate(30);
     close();
     openAdjust(canvas, det, 'camera', opts);
@@ -204,9 +196,9 @@ function openAdjust(photo, det, source, opts) {
     btn.disabled = true; btn.textContent = S.processing;
     setTimeout(() => {
       try {
-        const out = IP.processCapture(photo, sortQuad(pts), opts.defaults);
+        const out = IP.processPaper(photo, sortQuad(pts));
         close();
-        opts.onResult({ dataURL: out.dataURL, colors: out.colors, found: out.found, inkRatio: out.inkRatio, source });
+        opts.onResult({ dataURL: out.dataURL, colors: { ...opts.defaults }, found: null, inkRatio: out.inkRatio, source });
       } catch (e) {
         console.error(e); btn.disabled = false; btn.textContent = S.useThis; toast(S.error, 'err');
       }

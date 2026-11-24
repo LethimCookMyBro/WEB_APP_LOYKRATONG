@@ -224,3 +224,116 @@ export function renderPattern(container, { text, script, size = 'md', autoplay =
   }
   return ctrl;
 }
+
+/* ------------------------------------------------------------------ */
+/* One big character, for the on-screen writing pad                    */
+/* ------------------------------------------------------------------ */
+
+const THAI_FONT = "'Noto Sans Thai Looped','Noto Sans Thai',sans-serif";
+const JA_FONT = "'Klee One','Noto Sans JP',serif";
+
+/**
+ * Draw one character (Japanese) or one Thai cluster into `svg` as a lesson:
+ * a light grey letter to trace, red stroke-order numbers (Japanese), and a
+ * play() animation that writes the letter in red and then fades back.
+ * @returns {{play(speed?:number):void, stop():void, setGuide(on:boolean):void}}
+ */
+export function charLesson(svg, ch, script, { onUpdate } = {}) {
+  let timers = [];
+  let guideOn = true;
+  let anim = [];      // elements animated by play()
+  let ghost = null;   // layer hidden by setGuide(false)
+  const stop = () => { timers.forEach(clearTimeout); timers = []; };
+
+  function build() {
+    stop();
+    svg.innerHTML = '';
+    anim = [];
+    if (script === 'ja') {
+      svg.setAttribute('viewBox', '0 0 109 109');
+      const grid = el('g', { stroke: '#e6c9a8', 'stroke-width': 0.6, 'stroke-dasharray': '2.5 2.5' }, svg);
+      el('line', { x1: 54.5, y1: 3, x2: 54.5, y2: 106 }, grid);
+      el('line', { x1: 3, y1: 54.5, x2: 106, y2: 54.5 }, grid);
+      ghost = el('g', {}, svg);
+      const data = STROKES[ch];
+      if (!data) {
+        const tx = el('text', { x: 54.5, y: 84, 'text-anchor': 'middle', 'font-size': 80, fill: '#e2d5c2', 'font-family': JA_FONT }, ghost);
+        tx.textContent = ch;
+        return;
+      }
+      data.s.forEach((d) => el('path', { d, fill: 'none', stroke: '#e4d8c6', 'stroke-width': 7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, ghost));
+      const ink = el('g', {}, svg);
+      data.s.forEach((d) => anim.push(el('path', { d, fill: 'none', stroke: '#e0473a', 'stroke-width': 5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0 }, ink)));
+      const nums = el('g', {}, ghost);
+      data.n.forEach((p, i) => {
+        if (!p) return;
+        el('circle', { cx: p[0] + 2.2, cy: p[1] - 2.8, r: 4.2, fill: '#fff6ef', opacity: 0.9 }, nums);
+        const tx = el('text', { x: p[0] + 2.2, y: p[1] - 0.2, 'text-anchor': 'middle', 'font-size': 7.2, fill: '#d13a2e', 'font-weight': 700, 'font-family': 'system-ui,sans-serif' }, nums);
+        tx.textContent = String(i + 1);
+      });
+    } else {
+      svg.setAttribute('viewBox', '0 0 100 100');
+      const fs = 50; const base = 68;
+      let xh = 26; // x-height in px, measured below when the font is ready
+      try {
+        const g = document.createElement('canvas').getContext('2d');
+        g.font = `${fs}px ${THAI_FONT}`;
+        const m = g.measureText('ก');
+        if (m.actualBoundingBoxAscent) xh = m.actualBoundingBoxAscent;
+      } catch { /* keep the estimate */ }
+      const lines = { top: base - xh - 16, xTop: base - xh, base, bottom: base + 14 };
+      Object.entries(lines).forEach(([k, y]) => el('line', {
+        x1: 2, x2: 98, y1: y, y2: y, stroke: k === 'base' ? '#e0b98f' : '#efdcc4', 'stroke-width': k === 'base' ? 0.9 : 0.6,
+        'stroke-dasharray': k === 'base' ? '' : '2.5 2.5',
+      }, svg));
+      ghost = el('g', {}, svg);
+      const gt = el('text', { x: 50, y: base, 'text-anchor': 'middle', 'font-size': fs, fill: '#e4d8c6', 'font-family': THAI_FONT }, ghost);
+      gt.textContent = ch;
+      const at = el('text', { x: 50, y: base, 'text-anchor': 'middle', 'font-size': fs, fill: 'transparent', stroke: '#e0473a', 'stroke-width': 1.1, 'font-family': THAI_FONT, opacity: 0 }, svg);
+      at.textContent = ch;
+      anim.push(at);
+    }
+    ghost.style.transition = 'opacity .25s';
+    ghost.style.opacity = guideOn ? '1' : '0';
+  }
+
+  function play(speed = 1) {
+    stop();
+    if (!anim.length) return;
+    if (script === 'ja') {
+      let tAcc = 80;
+      anim.forEach((p) => {
+        const len = p.getTotalLength();
+        p.style.transition = 'none';
+        p.style.strokeDasharray = `${len} ${len}`; p.style.strokeDashoffset = String(len);
+        p.setAttribute('opacity', 1);
+      });
+      anim.forEach((p) => {
+        const len = p.getTotalLength();
+        const dur = Math.max(260, len * 10) / speed;
+        timers.push(setTimeout(() => { p.style.transition = `stroke-dashoffset ${dur}ms cubic-bezier(.4,.1,.4,1)`; p.style.strokeDashoffset = '0'; }, tAcc));
+        tAcc += dur + 120 / speed;
+      });
+      timers.push(setTimeout(() => anim.forEach((p) => { p.style.transition = 'opacity .8s'; p.setAttribute('opacity', 0); }), tAcc + 700));
+    } else {
+      const tx = anim[0];
+      tx.style.transition = 'none';
+      tx.style.strokeDasharray = '400'; tx.style.strokeDashoffset = '400'; tx.style.fill = 'transparent';
+      tx.setAttribute('opacity', 1);
+      const dur = 1600 / speed;
+      timers.push(setTimeout(() => { tx.style.transition = `stroke-dashoffset ${dur}ms ease-in-out, fill 500ms ${dur * 0.8}ms`; tx.style.strokeDashoffset = '0'; tx.style.fill = 'rgba(224,71,58,.85)'; }, 60));
+      timers.push(setTimeout(() => { tx.style.transition = 'opacity .8s'; tx.setAttribute('opacity', 0); }, dur + 1300));
+    }
+  }
+
+  build();
+  if (script === 'ja' && !STROKES[ch]) {
+    fetchMissing(ch).then((got) => { if (got && svg.isConnected) { build(); onUpdate?.(); } });
+  }
+  if (script === 'th' && document.fonts) document.fonts.ready.then(() => { if (svg.isConnected) build(); });
+  return {
+    play,
+    stop() { stop(); anim.forEach((p) => p.setAttribute('opacity', 0)); },
+    setGuide(on) { guideOn = on; if (ghost) ghost.style.opacity = on ? '1' : '0'; },
+  };
+}

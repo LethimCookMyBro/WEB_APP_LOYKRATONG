@@ -140,15 +140,15 @@ function startCeremony() {
 
 const captureOpts = {
   strings: {
-    captureHint: 'วางกระทงต้นแบบบนพื้นเรียบ ถ่ายจากด้านบน ให้จุดดำ 4 มุมอยู่ในกรอบเล็ง', shoot: 'ถ่ายภาพ',
-    cameraDenied: 'เปิดกล้องไม่ได้ ลองเลือกรูปจากเครื่องแทน', adjustTitle: 'ปรับมุมกรอบ', autoFound: 'พบจุดมุมอัตโนมัติแล้ว',
-    autoNotFound: 'ลากจุดให้ตรงกับจุดดำ 4 มุม', retake: 'ถ่ายใหม่', useThis: 'ใช้ภาพนี้', processing: 'กำลังประมวลผล…', error: 'ประมวลผลภาพไม่สำเร็จ',
+    captureHint: 'ถ่ายกระดาษที่เขียนข้อความเปิดงาน จากด้านบน ให้เห็นกระดาษทั้งแผ่น', shoot: 'ถ่ายภาพ',
+    cameraDenied: 'เปิดกล้องไม่ได้ ลองเลือกรูปจากเครื่องแทน', adjustTitle: 'ปรับมุมกระดาษ', autoFound: 'เจอกระดาษแล้ว ตรวจมุมอีกครั้ง',
+    autoNotFound: 'ลากจุดทั้ง 4 ไปที่มุมกระดาษ', retake: 'ถ่ายใหม่', useThis: 'ใช้ภาพนี้', processing: 'กำลังประมวลผล…', error: 'ประมวลผลภาพไม่สำเร็จ',
   },
   defaults: HOST_COLORS,
   toast, vibrate,
   onResult(r) {
     hostK.colors = r.colors; hostK.dataURL = r.dataURL;
-    toast('ใช้ภาพกระทงต้นแบบแล้ว', 'gold');
+    toast('ใช้ลายมือจากภาพแล้ว', 'gold');
     setPadKrathong();
   },
 };

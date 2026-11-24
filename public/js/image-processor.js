@@ -1,29 +1,10 @@
 // image-processor.js
-// Client-side image pipeline (Canvas only, no libraries):
-//   1. detectMarkers()      find the 4 black corner markers of the wish box
-//   2. warpQuad()           perspective-correct the box with a homography
-//   3. extractHandwriting() adaptive threshold -> ink on transparent PNG
-//   4. samplePalette()      read colours of the petal / base / flower zones
-//
-// Geometry of the A4 template (millimetres, origin = centre of the floor square):
-//   writing box     72 x 50       (x ±36, y ±25)
-//   corner markers  6 x 6 squares centred at (±40, ±29)  -> "marker rectangle" 80 x 58
-//   floor square    90 x 90       (±45)   = base ring + 2 flowers at (0, ±35)
-//   walls (inner petals) fold up and flare out -> seen at ~45-57 mm from centre
-//   petal tips (outer petals) fold outwards     -> seen at ~60-78 mm from centre
-
-export const TEMPLATE = {
-  markerRect: { w: 80, h: 58 },
-  markerSize: 6,
-  box: { w: 72, h: 50 },
-};
-export const MARKER_ASPECT = TEMPLATE.markerRect.w / TEMPLATE.markerRect.h;
-
-const MR = TEMPLATE.markerRect;
-// marker centres in template mm, order TL, TR, BR, BL
-const MARKER_MM = [
-  [-MR.w / 2, -MR.h / 2], [MR.w / 2, -MR.h / 2], [MR.w / 2, MR.h / 2], [-MR.w / 2, MR.h / 2],
-];
+// Client-side image pipeline (Canvas only, no libraries) for a photo of a
+// plain sheet of paper with handwriting on it:
+//   1. findPaper()    find the bright sheet of paper -> 4 corners (TL, TR, BR, BL)
+//   2. warpQuad()     perspective-correct the sheet with a homography
+//   3. extractInk()   adaptive threshold -> ink on a transparent PNG
+//   4. cropToInk()    drop marks touching the edge, crop to the writing
 
 /* ------------------------------------------------------------------ */
 /* Homography helpers                                                  */
@@ -64,11 +45,6 @@ export function homography(src, dst) {
 export function applyH(H, x, y) {
   const w = H[6] * x + H[7] * y + H[8];
   return [(H[0] * x + H[1] * y + H[2]) / w, (H[3] * x + H[4] * y + H[5]) / w];
-}
-
-/** Map template millimetres -> image pixels given the 4 detected marker centres. */
-export function templateToImage(quad) {
-  return homography(MARKER_MM, quad);
 }
 
 /* ------------------------------------------------------------------ */
@@ -113,158 +89,80 @@ function otsu(hist, total) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 1. Corner marker detection                                          */
+/* 1. Paper detection                                                  */
 /* ------------------------------------------------------------------ */
 
 /**
- * Look for the black square marker closest to each expected corner.
- * @param {HTMLCanvasElement} canvas  full image
- * @param {number[][]} expected       4 approximate marker centres [TL, TR, BR, BL] in px
- * @returns {{points:number[][], found:boolean[], all:boolean}}
+ * Find the largest bright, low-colour region (the sheet of paper) and return
+ * its four corners. Works on a downscaled copy, so it is fast enough to run
+ * on live camera frames.
+ * @param {HTMLCanvasElement} canvas
+ * @returns {{points:number[][], found:boolean[], all:boolean, coverage:number}|null}
  */
-export function detectMarkers(canvas, expected) {
-  const W = canvas.width; const H = canvas.height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const side = (Math.hypot(expected[1][0] - expected[0][0], expected[1][1] - expected[0][1]) +
-    Math.hypot(expected[2][0] - expected[3][0], expected[2][1] - expected[3][1])) / 2;
-  const expMarker = side * (TEMPLATE.markerSize / MR.w); // expected marker side length (px)
-  const radius = Math.max(24, side * 0.2);
-  const points = []; const found = [];
-  expected.forEach(([ex, ey]) => {
-    const x0 = Math.max(0, Math.floor(ex - radius)); const y0 = Math.max(0, Math.floor(ey - radius));
-    const x1 = Math.min(W, Math.ceil(ex + radius)); const y1 = Math.min(H, Math.ceil(ey + radius));
-    const w = x1 - x0; const h = y1 - y0;
-    if (w < 8 || h < 8) { points.push([ex, ey]); found.push(false); return; }
-    const data = ctx.getImageData(x0, y0, w, h).data;
-    const g = new Uint8Array(w * h);
-    const hist = new Array(256).fill(0);
-    for (let i = 0; i < w * h; i++) {
-      const v = lum(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]) | 0;
-      g[i] = v; hist[v]++;
-    }
-    const thr = Math.min(otsu(hist, w * h), 110);
-    const seen = new Uint8Array(w * h);
-    const stack = new Int32Array(w * h);
-    let best = null;
-    for (let i = 0; i < w * h; i++) {
-      if (seen[i] || g[i] > thr) continue;
-      // flood fill a dark component
-      let sp = 0; stack[sp++] = i; seen[i] = 1;
-      let area = 0; let sx = 0; let sy = 0;
-      let minX = w; let minY = h; let maxX = 0; let maxY = 0;
-      while (sp) {
-        const p = stack[--sp];
-        const px = p % w; const py = (p / w) | 0;
-        area++; sx += px; sy += py;
-        if (px < minX) minX = px; if (px > maxX) maxX = px;
-        if (py < minY) minY = py; if (py > maxY) maxY = py;
-        const nb = [p - 1, p + 1, p - w, p + w];
-        for (let k = 0; k < 4; k++) {
-          const q = nb[k];
-          if (q < 0 || q >= w * h) continue;
-          if ((k === 0 && px === 0) || (k === 1 && px === w - 1)) continue;
-          if (!seen[q] && g[q] <= thr) { seen[q] = 1; stack[sp++] = q; }
-        }
-      }
-      const bw = maxX - minX + 1; const bh = maxY - minY + 1;
-      const fill = area / (bw * bh);
-      const aspect = Math.min(bw, bh) / Math.max(bw, bh);
-      const expArea = expMarker * expMarker;
-      if (area < expArea * 0.2 || area > expArea * 4.5) continue;
-      if (fill < 0.5 || aspect < 0.45) continue;
-      const cx = x0 + sx / area; const cy = y0 + sy / area;
-      const dist = Math.hypot(cx - ex, cy - ey);
-      const score = dist / radius + Math.abs(1 - area / expArea) * 0.3 + (1 - fill) * 0.5;
-      if (!best || score < best.score) best = { cx, cy, score };
-    }
-    if (best) { points.push([best.cx, best.cy]); found.push(true); }
-    else { points.push([ex, ey]); found.push(false); }
-  });
-  return { points, found, all: found.every(Boolean) };
-}
-
-/**
- * Search the whole image for the 4 corner markers (used for uploaded photos,
- * where we do not know where the sheet is). Finds square dark blobs, then picks
- * the 4 that best form a convex quad with the template's aspect ratio.
- */
-export function findMarkersGlobal(canvas) {
-  const s = Math.min(1, 900 / Math.max(canvas.width, canvas.height));
-  const w = Math.round(canvas.width * s); const h = Math.round(canvas.height * s);
+export function findPaper(canvas, maxSide = 360) {
+  const s = Math.min(1, maxSide / Math.max(canvas.width, canvas.height));
+  const w = Math.max(8, Math.round(canvas.width * s)); const h = Math.max(8, Math.round(canvas.height * s));
   const small = makeCanvas(w, h);
   const sctx = small.getContext('2d', { willReadFrequently: true });
   sctx.drawImage(canvas, 0, 0, w, h);
-  const data = sctx.getImageData(0, 0, w, h).data;
-  const g = new Uint8Array(w * h);
+  const d = sctx.getImageData(0, 0, w, h).data;
+  const n = w * h;
+  const gray = new Uint8Array(n);
+  const sat = new Float32Array(n);
   const hist = new Array(256).fill(0);
-  for (let i = 0; i < w * h; i++) { const v = lum(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]) | 0; g[i] = v; hist[v]++; }
-  const thr = Math.min(otsu(hist, w * h), 95);
-  const seen = new Uint8Array(w * h); const stack = new Int32Array(w * h);
-  const blobs = [];
-  for (let i = 0; i < w * h; i++) {
-    if (seen[i] || g[i] > thr) continue;
-    let sp = 0; stack[sp++] = i; seen[i] = 1;
-    let area = 0; let sx = 0; let sy = 0; let minX = w; let minY = h; let maxX = 0; let maxY = 0;
-    while (sp) {
-      const p = stack[--sp]; const px = p % w; const py = (p / w) | 0;
-      area++; sx += px; sy += py;
-      if (px < minX) minX = px; if (px > maxX) maxX = px; if (py < minY) minY = py; if (py > maxY) maxY = py;
-      if (px > 0 && !seen[p - 1] && g[p - 1] <= thr) { seen[p - 1] = 1; stack[sp++] = p - 1; }
-      if (px < w - 1 && !seen[p + 1] && g[p + 1] <= thr) { seen[p + 1] = 1; stack[sp++] = p + 1; }
-      if (py > 0 && !seen[p - w] && g[p - w] <= thr) { seen[p - w] = 1; stack[sp++] = p - w; }
-      if (py < h - 1 && !seen[p + w] && g[p + w] <= thr) { seen[p + w] = 1; stack[sp++] = p + w; }
+  for (let i = 0; i < n; i++) {
+    const r = d[i * 4]; const g = d[i * 4 + 1]; const b = d[i * 4 + 2];
+    const v = Math.round(lum(r, g, b));
+    gray[i] = v; hist[v]++;
+    const mx = Math.max(r, g, b); const mn = Math.min(r, g, b);
+    sat[i] = mx ? (mx - mn) / mx : 0;
+  }
+  const thr = Math.max(90, otsu(hist, n));
+  const mask = new Uint8Array(n);
+  for (let i = 0; i < n; i++) mask[i] = gray[i] > thr && sat[i] < 0.32 ? 1 : 0;
+  // largest 4-connected component
+  const label = new Int32Array(n);
+  const stack = new Int32Array(n);
+  let best = 0; let bestId = 0; let id = 0;
+  for (let i = 0; i < n; i++) {
+    if (!mask[i] || label[i]) continue;
+    id++;
+    let top = 0; let size = 0;
+    stack[top++] = i; label[i] = id;
+    while (top) {
+      const p = stack[--top]; size++;
+      const x = p % w;
+      if (x > 0 && mask[p - 1] && !label[p - 1]) { label[p - 1] = id; stack[top++] = p - 1; }
+      if (x < w - 1 && mask[p + 1] && !label[p + 1]) { label[p + 1] = id; stack[top++] = p + 1; }
+      if (p >= w && mask[p - w] && !label[p - w]) { label[p - w] = id; stack[top++] = p - w; }
+      if (p < n - w && mask[p + w] && !label[p + w]) { label[p + w] = id; stack[top++] = p + w; }
     }
-    const bw = maxX - minX + 1; const bh = maxY - minY + 1;
-    const fill = area / (bw * bh); const aspect = Math.min(bw, bh) / Math.max(bw, bh);
-    if (area < 12 || area > w * h * 0.01 || fill < 0.6 || aspect < 0.55) continue;
-    blobs.push({ x: sx / area, y: sy / area, area });
+    if (size > best) { best = size; bestId = id; }
   }
-  const cand = blobs.sort((a, b) => b.area - a.area).slice(0, 24);
-  let best = null;
-  const n = cand.length;
-  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) for (let d = c + 1; d < n; d++) {
-    const set = [cand[a], cand[b], cand[c], cand[d]];
-    const areas = set.map((q) => q.area);
-    if (Math.max(...areas) / Math.min(...areas) > 3) continue;
-    const cx = (set[0].x + set[1].x + set[2].x + set[3].x) / 4; const cy = (set[0].y + set[1].y + set[2].y + set[3].y) / 4;
-    const ring = set.slice().sort((p, q) => Math.atan2(p.y - cy, p.x - cx) - Math.atan2(q.y - cy, q.x - cx));
-    let start = 0; let m = Infinity;
-    ring.forEach((q, i) => { if (q.x + q.y < m) { m = q.x + q.y; start = i; } });
-    const Q = [0, 1, 2, 3].map((i) => ring[(start + i) % 4]);
-    const L = (i, j) => Math.hypot(Q[i].x - Q[j].x, Q[i].y - Q[j].y);
-    const top = L(0, 1); const bot = L(3, 2); const left = L(0, 3); const right = L(1, 2);
-    if (Math.min(top, bot) / Math.max(top, bot) < 0.7 || Math.min(left, right) / Math.max(left, right) < 0.7) continue;
-    const ratio = (top + bot) / (left + right);
-    const ratioErr = Math.abs(Math.log(ratio / MARKER_ASPECT));
-    if (ratioErr > 0.35) continue;
-    // marker size should match the quad size (6 mm of 80 mm)
-    const expSide = ((top + bot) / 2) * (TEMPLATE.markerSize / MR.w);
-    const sizeErr = Math.abs(Math.log(Math.sqrt(areas.reduce((x, y) => x + y) / 4) / expSide));
-    if (sizeErr > 0.6) continue;
-    const score = ratioErr + sizeErr * 0.5 - Math.log(top + left) * 0.05;
-    if (!best || score < best.score) best = { score, Q };
+  const coverage = best / n;
+  if (coverage < 0.06) return null;
+  // extreme points of the component
+  let tl = [0, 0, Infinity]; let br = [0, 0, -Infinity]; let tr = [0, 0, -Infinity]; let bl = [0, 0, Infinity];
+  for (let i = 0; i < n; i++) {
+    if (label[i] !== bestId) continue;
+    const x = i % w; const y = (i / w) | 0;
+    if (x + y < tl[2]) tl = [x, y, x + y];
+    if (x + y > br[2]) br = [x, y, x + y];
+    if (x - y > tr[2]) tr = [x, y, x - y];
+    if (x - y < bl[2]) bl = [x, y, x - y];
   }
-  if (!best) return null;
-  return { points: best.Q.map((q) => [q.x / s, q.y / s]), found: [true, true, true, true], all: true };
+  const up = (p) => [(p[0] + 0.5) / s, (p[1] + 0.5) / s];
+  const points = [up(tl), up(tr), up(br), up(bl)];
+  // reject degenerate shapes (e.g. a thin strip)
+  const area = Math.abs(points.reduce((a, p, i) => { const q = points[(i + 1) % 4]; return a + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+  if (area < canvas.width * canvas.height * 0.05) return null;
+  return { points, found: [true, true, true, true], all: true, coverage };
 }
 
-/** If exactly 3 markers were found, infer the 4th (parallelogram rule). */
-export function completeQuad(det) {
-  const missing = det.found.map((f, i) => (f ? -1 : i)).filter((i) => i >= 0);
-  if (missing.length !== 1) return det;
-  const m = missing[0];
-  const a = det.points[(m + 1) % 4]; const b = det.points[(m + 2) % 4]; const c = det.points[(m + 3) % 4];
-  const pts = det.points.slice();
-  pts[m] = [a[0] + c[0] - b[0], a[1] + c[1] - b[1]];
-  return { ...det, points: pts };
-}
-
-/** Default guess: centred marker rectangle covering `frac` of the image width. */
-export function defaultQuad(w, h, frac = 0.5) {
-  let qw = w * frac; let qh = qw / MARKER_ASPECT;
-  if (qh > h * 0.8) { qh = h * 0.8; qw = qh * MARKER_ASPECT; }
-  const cx = w / 2; const cy = h / 2;
-  return [[cx - qw / 2, cy - qh / 2], [cx + qw / 2, cy - qh / 2], [cx + qw / 2, cy + qh / 2], [cx - qw / 2, cy + qh / 2]];
+/** Fallback corners when no paper is found: a centred rectangle with `margin` on each side. */
+export function defaultQuad(w, h, margin = 0.08) {
+  const mx = w * margin; const my = h * margin;
+  return [[mx, my], [w - mx, my], [w - mx, h - my], [mx, h - my]];
 }
 
 /* ------------------------------------------------------------------ */
@@ -302,24 +200,21 @@ export function warpQuad(src, quad, outW, outH) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 3. Handwriting extraction                                           */
+/* 3. Ink extraction                                                   */
 /* ------------------------------------------------------------------ */
 
 /**
- * Crop the writing box out of the marker-rectangle warp and turn ink into a
- * transparent PNG (Bradley–Roth adaptive threshold using an integral image).
- * @param {HTMLCanvasElement} warped  marker rectangle warped to 10 px / mm (800 x 580)
+ * Turn dark pen strokes into a transparent PNG (Bradley–Roth adaptive
+ * threshold using an integral image). `inset` px are cut from every side
+ * to drop the paper edge.
  */
-export function extractHandwriting(warped, { insetMm = 4.8, t = 0.16 } = {}) {
-  const pxPerMm = warped.width / MR.w;
-  const inset = Math.round(insetMm * pxPerMm);
+export function extractInk(warped, { inset = 0, t = 0.16 } = {}) {
   const w = warped.width - inset * 2; const h = warped.height - inset * 2;
   const ctx = warped.getContext('2d', { willReadFrequently: true });
   const src = ctx.getImageData(inset, inset, w, h);
   const d = src.data;
   const gray = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) gray[i] = lum(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
-  // integral image
   const integ = new Float64Array((w + 1) * (h + 1));
   for (let y = 0; y < h; y++) {
     let row = 0;
@@ -328,7 +223,7 @@ export function extractHandwriting(warped, { insetMm = 4.8, t = 0.16 } = {}) {
       integ[(y + 1) * (w + 1) + x + 1] = integ[y * (w + 1) + x + 1] + row;
     }
   }
-  const S = Math.max(15, Math.round(w / 10)); const half = S >> 1;
+  const S = Math.max(15, Math.round(Math.max(w, h) / 12)); const half = S >> 1;
   const alpha = new Uint8ClampedArray(w * h);
   for (let y = 0; y < h; y++) {
     const ya = Math.max(0, y - half); const yb = Math.min(h, y + half + 1);
@@ -338,25 +233,24 @@ export function extractHandwriting(warped, { insetMm = 4.8, t = 0.16 } = {}) {
       const sum = integ[yb * (w + 1) + xb] - integ[ya * (w + 1) + xb] - integ[yb * (w + 1) + xa] + integ[ya * (w + 1) + xa];
       const mean = sum / count;
       const v = gray[y * w + x];
-      // soft edge: fully ink at (1 - 1.8t)*mean, transparent at (1 - t)*mean
+      // soft edge: fully ink at (1 - 1.9t)*mean, transparent at (1 - t)*mean
       const lo = mean * (1 - t * 1.9); const hi = mean * (1 - t);
       let a = v >= hi ? 0 : v <= lo ? 1 : (hi - v) / (hi - lo);
-      if (mean < 40) a = 0; // very dark region (shadow) — ignore
+      if (mean < 40) a = 0; // very dark region (shadow / table) — ignore
       alpha[y * w + x] = a * 255;
     }
   }
   // remove isolated specks: pixels with < 2 inked neighbours
   const clean = new Uint8ClampedArray(alpha);
-  let ink = 0;
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       const i = y * w + x;
       if (!alpha[i]) continue;
-      let n = 0;
-      if (alpha[i - 1] > 60) n++; if (alpha[i + 1] > 60) n++;
-      if (alpha[i - w] > 60) n++; if (alpha[i + w] > 60) n++;
-      if (alpha[i - w - 1] > 60) n++; if (alpha[i + w + 1] > 60) n++;
-      if (n < 2) clean[i] = 0; else if (clean[i] > 128) ink++;
+      let k = 0;
+      if (alpha[i - 1] > 60) k++; if (alpha[i + 1] > 60) k++;
+      if (alpha[i - w] > 60) k++; if (alpha[i + w] > 60) k++;
+      if (alpha[i - w - 1] > 60) k++; if (alpha[i + w + 1] > 60) k++;
+      if (k < 2) clean[i] = 0;
     }
   }
   const out = makeCanvas(w, h);
@@ -369,12 +263,73 @@ export function extractHandwriting(warped, { insetMm = 4.8, t = 0.16 } = {}) {
     o[i * 4 + 3] = clean[i];
   }
   octx.putImageData(img, 0, 0);
-  return { canvas: out, inkRatio: ink / (w * h) };
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* 4. Crop to the writing                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Remove ink blobs that touch the border (paper edges, shadows, the table)
+ * and tiny specks, then crop to the remaining writing with a small margin.
+ * @returns {{canvas:HTMLCanvasElement, inkRatio:number}}
+ */
+export function cropToInk(inkCanvas) {
+  const w = inkCanvas.width; const h = inkCanvas.height; const n = w * h;
+  const ctx = inkCanvas.getContext('2d', { willReadFrequently: true });
+  const img = ctx.getImageData(0, 0, w, h);
+  const a = img.data;
+  const on = (i) => a[i * 4 + 3] > 90;
+  const label = new Int32Array(n);
+  const stack = new Int32Array(n);
+  const minArea = Math.max(10, Math.round(n * 0.00002));
+  let id = 0;
+  let x0 = w; let y0 = h; let x1 = -1; let y1 = -1; let ink = 0;
+  const members = [];
+  for (let i = 0; i < n; i++) {
+    if (!on(i) || label[i]) continue;
+    id++;
+    let top = 0; let touches = false;
+    members.length = 0;
+    stack[top++] = i; label[i] = id;
+    while (top) {
+      const p = stack[--top]; members.push(p);
+      const x = p % w; const y = (p / w) | 0;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) touches = true;
+      // 8-connected so thin diagonal pen lines stay in one piece
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy; if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx; if (xx < 0 || xx >= w || (!dx && !dy)) continue;
+          const q = yy * w + xx;
+          if (!label[q] && on(q)) { label[q] = id; stack[top++] = q; }
+        }
+      }
+    }
+    if (touches || members.length < minArea) {
+      for (const p of members) a[p * 4 + 3] = 0;
+      continue;
+    }
+    for (const p of members) {
+      const x = p % w; const y = (p / w) | 0;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    ink += members.length;
+  }
+  ctx.putImageData(img, 0, 0);
+  if (x1 < 0) return { canvas: inkCanvas, inkRatio: 0 };
+  const pad = Math.max(12, Math.round(Math.max(x1 - x0, y1 - y0) * 0.06));
+  const cx0 = Math.max(0, x0 - pad); const cy0 = Math.max(0, y0 - pad);
+  const cw = Math.min(w, x1 + pad + 1) - cx0; const ch = Math.min(h, y1 + pad + 1) - cy0;
+  const out = makeCanvas(cw, ch);
+  out.getContext('2d').drawImage(inkCanvas, cx0, cy0, cw, ch, 0, 0, cw, ch);
+  return { canvas: out, inkRatio: ink / ((x1 - x0 + 1) * (y1 - y0 + 1)) };
 }
 
 /** Downscale + encode to keep the socket payload small (~30–150 KB). */
-export function canvasToDataURL(canvas, maxW = 640) {
-  const s = Math.min(1, maxW / canvas.width);
+export function canvasToDataURL(canvas, maxSide = 640) {
+  const s = Math.min(1, maxSide / Math.max(canvas.width, canvas.height));
   let c = canvas;
   if (s < 1) {
     c = makeCanvas(canvas.width * s, canvas.height * s);
@@ -386,84 +341,20 @@ export function canvasToDataURL(canvas, maxW = 640) {
 }
 
 /* ------------------------------------------------------------------ */
-/* 4. Colour sampling                                                  */
+/* Full pipeline                                                       */
 /* ------------------------------------------------------------------ */
 
-// sample locations in template mm (several per zone, best one wins)
-const ZONES = {
-  base: [[-26, -36], [26, -36], [26, 36], [-26, 36], [-40.5, 0], [40.5, 0]],
-  flower: [[0, -35], [0, 35], [0, -33], [0, 37]],
-  innerPetal: [[-51, 0], [51, 0], [0, -51], [0, 51], [-50, -22], [50, 22], [-22, -50], [22, 50]],
-  outerPetal: [[-66, 0], [66, 0], [0, -66], [0, 66], [-72, 0], [72, 0], [0, -72], [0, 72], [-62, -30], [62, 30]],
-};
+const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
 
-function rgbToHsv(r, g, b) {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b); const min = Math.min(r, g, b);
-  const d = max - min;
-  let hh = 0;
-  if (d) {
-    if (max === r) hh = ((g - b) / d) % 6;
-    else if (max === g) hh = (b - r) / d + 2;
-    else hh = (r - g) / d + 4;
-    hh *= 60; if (hh < 0) hh += 360;
-  }
-  return [hh, max ? d / max : 0, max];
-}
-const hex = (r, g, b) => '#' + [r, g, b].map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('').toUpperCase();
-
-/** Boost saturation/brightness a bit so paper crayon colours look vivid in 3D. */
-function vivid([r, g, b]) {
-  const [hh, s, v] = rgbToHsv(r, g, b);
-  const s2 = Math.min(1, s * 1.25 + 0.05); const v2 = Math.min(1, v * 1.12 + 0.04);
-  const c = v2 * s2; const x = c * (1 - Math.abs(((hh / 60) % 2) - 1)); const m = v2 - c;
-  let rgb;
-  if (hh < 60) rgb = [c, x, 0]; else if (hh < 120) rgb = [x, c, 0]; else if (hh < 180) rgb = [0, c, x];
-  else if (hh < 240) rgb = [0, x, c]; else if (hh < 300) rgb = [x, 0, c]; else rgb = [c, 0, x];
-  return rgb.map((u) => (u + m) * 255);
-}
-
-/**
- * @param {HTMLCanvasElement} canvas  full photo
- * @param {number[][]} quad           marker centres in px
- * @returns {{colors:Object, found:Object}}
- */
-export function samplePalette(canvas, quad, defaults) {
-  const H = templateToImage(quad);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const pxPerMm = Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]) / MR.w;
-  const r = Math.max(3, Math.round(pxPerMm * 3));
-  const colors = {}; const found = {};
-  for (const [zone, pts] of Object.entries(ZONES)) {
-    let best = null;
-    for (const [mx, my] of pts) {
-      const [px, py] = applyH(H, mx, my);
-      const x0 = Math.round(px - r); const y0 = Math.round(py - r);
-      if (x0 < 0 || y0 < 0 || x0 + 2 * r >= canvas.width || y0 + 2 * r >= canvas.height) continue;
-      const data = ctx.getImageData(x0, y0, 2 * r, 2 * r).data;
-      const picks = [];
-      for (let i = 0; i < data.length; i += 4) {
-        const [, s, v] = rgbToHsv(data[i], data[i + 1], data[i + 2]);
-        if (s > 0.22 && v > 0.18) picks.push([data[i], data[i + 1], data[i + 2], s]);
-      }
-      const ratio = picks.length / (data.length / 4);
-      if (ratio < 0.3) continue; // mostly white paper / pen lines
-      // median of each channel among coloured pixels
-      const med = [0, 1, 2].map((c) => picks.map((p) => p[c]).sort((a, b) => a - b)[picks.length >> 1]);
-      const sat = picks.reduce((a, p) => a + p[3], 0) / picks.length;
-      const score = ratio * 0.6 + sat * 0.4;
-      if (!best || score > best.score) best = { rgb: med, score };
-    }
-    if (best) { colors[zone] = hex(...vivid(best.rgb)); found[zone] = true; }
-    else { colors[zone] = defaults[zone]; found[zone] = false; }
-  }
-  return { colors, found };
-}
-
-/** Full pipeline helper: photo + quad -> { handwritingCanvas, dataURL, colors, found, inkRatio } */
-export function processCapture(photoCanvas, quad, defaults) {
-  const warped = warpQuad(photoCanvas, quad, MR.w * 10, MR.h * 10);
-  const { canvas, inkRatio } = extractHandwriting(warped);
-  const { colors, found } = samplePalette(photoCanvas, quad, defaults);
-  return { handwritingCanvas: canvas, dataURL: canvasToDataURL(canvas), colors, found, inkRatio, warped };
+/** photo + paper corners -> { dataURL, inkRatio } (ink on transparent PNG, cropped to the writing) */
+export function processPaper(photoCanvas, quad) {
+  const [tl, tr, br, bl] = quad;
+  let W = (dist(tl, tr) + dist(bl, br)) / 2; let H = (dist(tl, bl) + dist(tr, br)) / 2;
+  const s = Math.min(1, 1400 / Math.max(W, H));
+  W = Math.max(40, Math.round(W * s)); H = Math.max(40, Math.round(H * s));
+  const warped = warpQuad(photoCanvas, quad, W, H);
+  const inset = Math.round(Math.min(W, H) * 0.025);
+  const ink = extractInk(warped, { inset });
+  const { canvas, inkRatio } = cropToInk(ink);
+  return { canvas, dataURL: canvasToDataURL(canvas), inkRatio, warped };
 }

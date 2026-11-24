@@ -1,13 +1,13 @@
 // mobile-client.js — participant flow
-// language → name → wish → write & fold → capture → swipe to float
+// language → name → wish → write (on screen or on paper) → check & colours → swipe to float
 import {
   WISHES, getWish, UI, LANGUAGE_MODES,
   japaneseNameToThai, thaiNameToKatakana, katakanaReading,
 } from './language-data.js';
 import { renderPattern } from './pattern-view.js';
-import * as IP from './image-processor.js';
 import { audio } from './audio.js';
 import { startCamera, captureFromFile } from './capture-ui.js';
+import { openWritePad } from './write-pad.js';
 
 const DEFAULT_COLORS = { base: '#2E7D32', innerPetal: '#FF8F00', outerPetal: '#D84315', flower: '#FDD835' };
 const STEPS = ['name', 'wish', 'write', 'capture', 'send'];
@@ -183,7 +183,6 @@ function renderWelcome(root) {
     };
   });
   root.appendChild(cards);
-  root.appendChild(h(`<p class="foot-links"><a href="/template.html" target="_blank" rel="noopener">📄 กระดาษ A4 · A4用紙</a></p>`));
 }
 
 /* ------------------------------------------------------------------ */
@@ -395,19 +394,21 @@ function openWishLesson(w, onChoose) {
 function renderWrite(root) {
   const w = currentWish();
   const x = wishTexts(w);
-  const preview = `<div class="paper-preview">
-        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-        <div class="pp-name" style="font-family:var(--font-trace-${targetScript()})">${esc(state.nameOut)}</div>
-        <div class="pp-wish" style="font-family:var(--font-trace-${x.script})">${esc(x.target)}</div>
-      </div>`;
   root.appendChild(h(`<div>${head(t('writeTitle'), t('writeSub'))}
-    ${preview}
+    <div class="model-card">
+      <div class="mc-label">${esc(t('writeYourName'))}</div>
+      <div class="mc-name" style="font-family:var(--font-trace-${targetScript()})">${esc(state.nameOut)}</div>
+      <div class="mc-label">${esc(t('writeYourWish'))}</div>
+      <div class="mc-wish" style="font-family:var(--font-trace-${x.script})">${esc(x.target)}</div>
+    </div>
     <div class="rc-actions">
       <button class="pill" data-a="patName">✍️ ${esc(t('howToWrite'))} · ${esc(t('writeYourName'))}</button>
       <button class="pill" data-a="patWish">✍️ ${esc(t('howToWrite'))} · ${esc(t('writeYourWish'))}</button>
     </div>
-    <ol class="mini-steps">${t('steps').map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
-    <a class="btn btn-sm btn-ghost btn-block" href="/template.html" target="_blank" rel="noopener">📄 ${esc(t('templateLink'))}</a>
+    <div class="way-list">
+      <button class="way rec" data-a="screen"><span class="way-ico">✏️</span><span class="way-txt"><b>${esc(t('wayScreen'))}</b><small>${esc(t('wayScreenSub'))}</small></span><span class="way-go">›</span></button>
+      <button class="way" data-a="paper"><span class="way-ico">📄</span><span class="way-txt"><b>${esc(t('wayPaper'))}</b><small>${esc(t('wayPaperSub'))}</small></span><span class="way-go">›</span></button>
+    </div>
   </div>`));
   root.querySelector('[data-a=patName]').onclick = () => {
     const c = h('<div class="sheet-body"><h2 class="sheet-title center"></h2><div class="p"></div></div>');
@@ -420,17 +421,19 @@ function renderWrite(root) {
     c.querySelector('h2').textContent = x.target;
     openSheet(c); renderPattern(c.querySelector('.p'), { text: x.target, script: x.script, size: 'lg', labels: patternLabels() });
   };
+  root.querySelector('[data-a=screen]').onclick = openPad;
+  root.querySelector('[data-a=paper]').onclick = () => go('capture');
   actionBar([backBtn('wish'), nextBtn('capture')]);
 }
 
 /* ------------------------------------------------------------------ */
 /* Capture                                                             */
 /* ------------------------------------------------------------------ */
-const CAPTURE_ART_KRATHONG = `<svg viewBox="0 0 200 130" aria-hidden="true"><defs><linearGradient id="pg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ffc2d1"/><stop offset="1" stop-color="#ff8fab"/></linearGradient></defs>
-  <g transform="translate(100 66)">${Array.from({ length: 12 }, (_, i) => `<path transform="rotate(${i * 30})" d="M0 -58 C13 -45 15 -36 9 -29 L-9 -29 C-15 -36 -13 -45 0 -58z" fill="url(#pg)" opacity=".9"/>`).join('')}
-  <circle r="32" fill="#2E7D32"/><rect x="-24" y="-17" width="48" height="34" rx="3" fill="#fffdf7"/>
-  ${[[-28, -21], [22, -21], [-28, 15], [22, 15]].map(([x, y]) => `<rect x="${x}" y="${y}" width="6" height="6" fill="#111"/>`).join('')}
-  <path d="M-13 -4h26M-17 6h34" stroke="#333" stroke-width="2" stroke-linecap="round"/></g></svg>`;
+const CAPTURE_ART_PAPER = `<svg viewBox="0 0 200 130" aria-hidden="true">
+  <rect x="62" y="8" width="76" height="106" rx="4" fill="#fffdf7" transform="rotate(-6 100 61)"/>
+  <g transform="rotate(-6 100 61)" stroke="#2b2118" stroke-width="3" stroke-linecap="round" fill="none">
+    <path d="M78 40c6-8 12 8 18 0s10 8 16 0"/><path d="M76 62c8-6 14 6 22 0s14 6 24 0"/><path d="M80 80c6-5 12 5 18 0"/></g>
+  <g stroke="#5fd3b3" stroke-width="3" fill="none" stroke-linecap="round"><path d="M50 14v-8h10"/><path d="M150 14v-8h-10"/><path d="M50 116v8h10"/><path d="M150 116v8h-10"/></g></svg>`;
 function renderCapture(root) {
   const c = capture();
   root.appendChild(h(`<div>${head(c ? t('resultTitle') : t('captureTitle'), c ? '' : t('captureSub'))}<div id="capBody"></div></div>`));
@@ -443,26 +446,25 @@ function renderCapture(root) {
       </div>`));
       const pal = $('#palette');
       for (const zone of ['base', 'innerPetal', 'outerPetal', 'flower']) {
-        const sw = h(`<label class="swatch"><span class="sw" style="background:${c.colors[zone]}"><input type="color" value="${c.colors[zone].toLowerCase()}" aria-label="${esc(t('zone')[zone])}"></span>${esc(t('zone')[zone])}${c.found && c.found[zone] === false ? ' *' : ''}</label>`);
+        const sw = h(`<label class="swatch"><span class="sw" style="background:${c.colors[zone]}"><input type="color" value="${c.colors[zone].toLowerCase()}" aria-label="${esc(t('zone')[zone])}"></span>${esc(t('zone')[zone])}</label>`);
         const inp = sw.querySelector('input');
         inp.oninput = () => { c.colors[zone] = inp.value.toUpperCase(); sw.querySelector('.sw').style.background = inp.value; save(); };
         pal.appendChild(sw);
       }
-      if (c.found && Object.values(c.found).some((v) => v === false)) body.appendChild(h(`<p class="hint center">${esc(t('defaultColorNote'))}</p>`));
     if (c.inkRatio !== undefined && c.inkRatio < 0.002) body.appendChild(h(`<p class="warn-line">⚠️ ${esc(t('faintInk'))}</p>`));
     body.appendChild(h(`<div class="rc-actions"><button class="pill" data-a="retake">📷 ${esc(t('retake'))}</button><button class="pill" data-a="draw">✏️ ${esc(t('drawInstead'))}</button></div>`));
     body.querySelector('[data-a=retake]').onclick = openCamera;
-    body.querySelector('[data-a=draw]').onclick = openDrawPad;
+    body.querySelector('[data-a=draw]').onclick = openPad;
   } else {
     body.appendChild(h(`<div class="cap-start">
-      <div class="cap-art">${CAPTURE_ART_KRATHONG}</div>
-      <ul class="tip-row">${t('tips').map((x, i) => `<li><span>${['💡', '📱', '⬛'][i]}</span>${esc(x)}</li>`).join('')}</ul>
+      <div class="cap-art">${CAPTURE_ART_PAPER}</div>
+      <ul class="tip-row">${t('tips').map((x, i) => `<li><span>${['💡', '📱', '📄'][i]}</span>${esc(x)}</li>`).join('')}</ul>
       <button class="btn btn-primary btn-block btn-lg" data-a="cam">📷 ${esc(t('openCamera'))}</button>
       <label class="btn btn-block">🖼️ ${esc(t('upload'))}<input type="file" accept="image/*" hidden data-a="file"></label>
       <button class="text-link" data-a="draw">${esc(t('drawInstead'))}</button>
     </div>`));
     body.querySelector('[data-a=cam]').onclick = openCamera;
-    body.querySelector('[data-a=draw]').onclick = openDrawPad;
+    body.querySelector('[data-a=draw]').onclick = openPad;
     const file = body.querySelector('[data-a=file]');
     file.onchange = () => { if (file.files?.[0]) loadFile(file.files[0]); };
   }
@@ -480,54 +482,30 @@ function onCaptured(result) {
   state.capture = { dataURL: result.dataURL, colors: result.colors, found: result.found, inkRatio: result.inkRatio, source: result.source };
   save(); vibrate(20); render();
 }
-const captureOpts = () => ({ strings: captureStrings(), defaults: DEFAULT_COLORS, onResult: onCaptured, toast, vibrate });
+const captureOpts = () => ({ strings: captureStrings(), defaults: capture()?.colors || DEFAULT_COLORS, onResult: onCaptured, toast, vibrate });
 const openCamera = () => startCamera(captureOpts());
 const loadFile = (f) => captureFromFile(f, captureOpts());
 
-/* ---------- Draw on screen (no paper) ---------- */
-function openDrawPad() {
-  const colors = { ...(capture()?.colors || DEFAULT_COLORS) };
-  const pens = ['#1b1b1b', '#c0392b', '#1e5bb8', '#1f7a43'];
-  let pen = pens[0];
+/* ---------- Write on screen (one letter at a time, with lessons) ---------- */
+function openPad() {
   const x = wishTexts(currentWish());
-  const [W, H] = [720, 500];
-  const content = h(`<div class="sheet-body">
-    <h2 class="sheet-title center">${esc(t('drawTitle'))}</h2>
-    <div class="draw-pad"><div class="ghost" style="font-family:var(--font-trace-${x.script})">${esc(state.nameOut)}<br>${esc(x.target)}</div><canvas width="${W}" height="${H}"></canvas></div>
-    <div class="pen-colors">${pens.map((p, i) => `<button type="button" style="background:${p}" class="${i ? '' : 'on'}" data-pen="${p}" aria-label="pen ${i + 1}"></button>`).join('')}</div>
-    <div class="palette" id="drawPal"></div>
-    <div class="row"><button class="btn" data-a="clear">${esc(t('clear'))}</button><button class="btn btn-primary" style="flex:1" data-a="done">✓ ${esc(t('done'))}</button></div>
-  </div>`);
-  const close = openSheet(content);
-  const cv = content.querySelector('canvas');
-  const g = cv.getContext('2d');
-  g.lineCap = 'round'; g.lineJoin = 'round';
-  let drawing = false; let last = null; let strokes = 0;
-  const pos = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * (cv.width / r.width), (e.clientY - r.top) * (cv.height / r.height)]; };
-  cv.addEventListener('pointerdown', (e) => { drawing = true; last = pos(e); cv.setPointerCapture(e.pointerId); content.querySelector('.ghost').style.opacity = '0.35'; });
-  cv.addEventListener('pointermove', (e) => {
-    if (!drawing) return;
-    const p = pos(e);
-    g.strokeStyle = pen; g.lineWidth = 9;
-    g.beginPath(); g.moveTo(...last); g.lineTo(...p); g.stroke();
-    last = p; strokes++;
+  openWritePad({
+    lines: [
+      { key: 'name', label: t('writeYourName'), text: state.nameOut, script: targetScript() },
+      { key: 'wish', label: t('writeYourWish'), text: x.target, script: x.script },
+    ],
+    s: {
+      title: t('drawTitle'), how: t('howToWrite'), slow: t('patSlow'), guide: t('padGuide'), undo: t('padUndo'),
+      clear: t('clear'), prev: t('back'), next: t('next'), done: t('done'), strokeTip: t('strokeTip'),
+      thaiTip: t('thaiTip'), empty: t('padEmpty'), close: t('padClose'),
+    },
+    toast, vibrate,
+    onDone(dataURL) {
+      state.capture = { dataURL, colors: { ...(capture()?.colors || DEFAULT_COLORS) }, found: null, inkRatio: undefined, source: 'draw' };
+      save();
+      if (state.step === 'capture') render(); else go('capture');
+    },
   });
-  const end = () => { drawing = false; };
-  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
-  content.querySelectorAll('[data-pen]').forEach((b) => { b.onclick = () => { pen = b.dataset.pen; content.querySelectorAll('[data-pen]').forEach((o) => o.classList.toggle('on', o === b)); }; });
-  const pal = content.querySelector('#drawPal');
-  for (const zone of ['base', 'innerPetal', 'outerPetal', 'flower']) {
-    const sw = h(`<label class="swatch"><span class="sw" style="background:${colors[zone]}"><input type="color" value="${colors[zone].toLowerCase()}"></span>${esc(t('zone')[zone])}</label>`);
-    const inp = sw.querySelector('input');
-    inp.oninput = () => { colors[zone] = inp.value.toUpperCase(); sw.querySelector('.sw').style.background = inp.value; };
-    pal.appendChild(sw);
-  }
-  content.querySelector('[data-a=clear]').onclick = () => { g.clearRect(0, 0, cv.width, cv.height); strokes = 0; content.querySelector('.ghost').style.opacity = '1'; };
-  content.querySelector('[data-a=done]').onclick = () => {
-    if (strokes < 5) { toast(t('drawTitle')); return; }
-    state.capture = { dataURL: IP.canvasToDataURL(cv), colors, found: null, inkRatio: undefined, source: 'draw' };
-    save(); close(); render();
-  };
 }
 
 /* ------------------------------------------------------------------ */
