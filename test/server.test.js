@@ -51,6 +51,13 @@ test('ceremony flow over Socket.io', async () => {
     assert.equal(got.colors.base, '#112233');
     assert.equal(got.handwritingImageBase64, PNG);
 
+    const tz = once(stage, 'spawn_krathong');
+    const tzRes = await ack(phone, 'spawn_krathong', { ...k, id: 'user_2', activity: 'tanabata', tanzakuColor: '#d9475a' });
+    assert.equal(tzRes.ok, true);
+    const gotTz = await tz;
+    assert.equal(gotTz.activity, 'tanabata');
+    assert.equal(gotTz.tanzakuColor, '#D9475A');
+
     const removed = once(stage, 'remove_krathong');
     await ack(host, 'remove_krathong', { id: got.id });
     assert.equal((await removed).id, got.id);
