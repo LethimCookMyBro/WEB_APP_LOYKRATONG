@@ -222,6 +222,7 @@ function hostSummary(k) {
   return {
     id: k.id, isHost: k.isHost, receivedAt: k.receivedAt, displayName: k.displayName,
     selectedWishId: k.selectedWishId, customWish: k.customWish, languageMode: k.languageMode, colors: k.colors,
+    activity: k.activity, tanzakuColor: k.tanzakuColor,
     handwritingImageBase64: k.handwritingImageBase64,
   };
 }

@@ -8,6 +8,7 @@ import {
 import { glowTexture, HOST_COLORS } from './krathong-model.js';
 import { createFleet } from './krathong-fleet.js';
 import { SignLayer } from './sign-labels.js';
+import { createTanabata, createMilkyWay } from './tanabata-scene.js';
 import { getWish } from './language-data.js';
 import { audio } from './audio.js';
 import { assetFlags } from './assets.js';
@@ -39,6 +40,8 @@ scene.add(lanterns.points);
 const skyline = createSkyline({ z: -300 });
 scene.add(skyline.group);
 const ripples = createRippleSystem(scene);
+const milky = createMilkyWay();
+scene.add(milky.group);
 const sparkles = createSparkles({ count: 120, spread: 50, center: new THREE.Vector3(0, 0, -10) });
 scene.add(sparkles.points);
 
@@ -219,6 +222,47 @@ function hash01(str, salt = 0) {
 }
 
 const fleet = createFleet(scene, MAX_KRATHONGS + 5);
+const tanabata = createTanabata(scene, camera);
+
+/* ---------- spotlight: newly hung tanzaku shown large for a few seconds ---------- */
+const spotQueue = [];
+let spotBusy = false;
+function spotlight(data) {
+  spotQueue.push(data);
+  if (spotQueue.length > 6) spotQueue.shift();
+  if (!spotBusy) nextSpot();
+}
+function nextSpot() {
+  const data = spotQueue.shift();
+  const box = $('#spot');
+  if (!data || !box) { spotBusy = false; return; }
+  spotBusy = true;
+  box.innerHTML = '';
+  const card = document.createElement('div');
+  card.className = 'spot-tz';
+  card.style.setProperty('--tz', data.tanzakuColor || '#3E9B5F');
+  const paper = document.createElement('div'); paper.className = 'spot-paper';
+  if (data.handwritingImageBase64) { const img = document.createElement('img'); img.alt = ''; img.src = data.handwritingImageBase64; paper.appendChild(img); }
+  card.appendChild(paper);
+  const cap = document.createElement('div'); cap.className = 'spot-cap';
+  const n = document.createElement('b'); n.textContent = data.displayName || '';
+  const w = getWish(data.selectedWishId);
+  const s = document.createElement('span'); s.textContent = w ? (data.languageMode === 'JP_TO_TH' ? w.th : w.ja) : (data.customWish || '');
+  cap.append(n, s);
+  box.append(card, cap);
+  box.classList.add('on');
+  setTimeout(() => { box.classList.remove('on'); setTimeout(nextSpot, 900); }, 6500);
+}
+
+/** Route an incoming item to the krathong river or the Tanabata bamboo. */
+function spawnItem(data, opt = {}) {
+  if (data.activity === 'tanabata') {
+    tanabata.add(data, opt);
+    if (opt.entry) { spotlight(data); audio.chime(); }
+    return null;
+  }
+  return spawnKrathong(data, opt);
+}
 const signs = new SignLayer(document.body, camera, { refDistance: 30, minScale: 0.7, maxScale: 1.05 });
 const floating = [];
 let count = 0;
@@ -414,7 +458,7 @@ function feed(data) {
   const wishTx = wish ? (learnTh ? wish.th : wish.ja) : (data.customWish || '');
   const el = document.createElement('div');
   el.className = 'feed-item';
-  const lotus = document.createElement('span'); lotus.className = 'lotus'; lotus.textContent = '🪷';
+  const lotus = document.createElement('span'); lotus.className = 'lotus'; lotus.textContent = data.activity === 'tanabata' ? '🎋' : '🪷';
   const box = document.createElement('div'); box.style.minWidth = '0';
   const n = document.createElement('div'); n.className = 'n'; n.textContent = name;
   const w = document.createElement('div'); w.className = 'w'; w.textContent = wishTx;
@@ -498,18 +542,19 @@ if (socket) {
     } else if (snap.opening && snap.hostKrathong) {
       openCeremony(snap.hostKrathong);
     }
-    for (const k of snap.krathongs || []) spawnKrathong(k, { elapsed: (now - k.receivedAt) / 1000 });
+    tanabata.clear();
+    for (const k of snap.krathongs || []) spawnItem(k, { entry: false, elapsed: (now - k.receivedAt) / 1000 });
   });
   socket.on('ceremony_open', ({ krathong }) => openCeremony(krathong));
   socket.on('ceremony_state', (s) => {
     if (s.opened) { if (!look.target) setCeremonyLook(true); }
     else if (!s.opening && opened) { opened = false; setCeremonyLook(false); if (audioStarted) audio.setMode('calm'); }
   });
-  socket.on('spawn_krathong', (k) => { spawnKrathong(k, { entry: true }); feed(k); });
+  socket.on('spawn_krathong', (k) => { spawnItem(k, { entry: true }); feed(k); });
   socket.on('stats', (s) => setCount(s.floated));
-  socket.on('remove_krathong', ({ id }) => { const f = floating.find((x) => x.id === id); if (f) { f.retiring = true; f.retire = Math.min(f.retire, 0.4); } });
-  socket.on('river_clear', () => floating.forEach((f) => { if (!f.isHost) f.retiring = true; }));
-  socket.on('river_reset', () => { floating.forEach((f) => { f.retiring = true; }); opened = false; setCeremonyLook(false); if (audioStarted) audio.setMode('calm'); showLesson(null); });
+  socket.on('remove_krathong', ({ id }) => { tanabata.remove(id); const f = floating.find((x) => x.id === id); if (f) { f.retiring = true; f.retire = Math.min(f.retire, 0.4); } });
+  socket.on('river_clear', () => { tanabata.clear(); floating.forEach((f) => { if (!f.isHost) f.retiring = true; }); });
+  socket.on('river_reset', () => { tanabata.clear(); floating.forEach((f) => { f.retiring = true; }); opened = false; setCeremonyLook(false); if (audioStarted) audio.setMode('calm'); showLesson(null); });
   socket.on('bgm_changed', async () => { await audio.reloadBgm(); if (audioStarted) audio.setMode(look.target ? 'festival' : 'calm'); });
   socket.on('lesson', showLesson);
   socket.on('join_url', ({ url }) => refreshQr(url));
@@ -542,6 +587,7 @@ if (new URLSearchParams(location.search).get('autostart') === '1') $('#start').h
 let demoTimer = 0;
 const DEMO_NAMES = ['ทานากะ', 'ซาโต้', 'ソムチャイ', 'プロイ', 'ยามาดะ', 'ナッタポン', 'ซากุระ', 'シリポーン'];
 const DEMO_COLORS = [['#2E7D32', '#FF8F00', '#D84315', '#FDD835'], ['#1565C0', '#AB47BC', '#EC407A', '#FFEE58'], ['#00897B', '#FFB300', '#F4511E', '#FFF59D'], ['#6D4C41', '#E91E63', '#9C27B0', '#FFD54F']];
+const DEMO_TZ = ['#3E9B5F', '#D9475A', '#F2C94C', '#F7F3EA', '#7B5EA7'];
 function demoKrathong(i) {
   const c = DEMO_COLORS[i % DEMO_COLORS.length];
   const wishIds = ['research_fast', 'study_well', 'good_health', 'happiness', 'success'];
@@ -549,13 +595,14 @@ function demoKrathong(i) {
     id: `demo_${Date.now()}_${i}`, isHost: false, languageMode: i % 2 ? 'JP_TO_TH' : 'TH_TO_JP', selectedWishId: wishIds[i % 5],
     colors: { base: c[0], innerPetal: c[1], outerPetal: c[2], flower: c[3] },
     handwritingImageBase64: null, displayName: DEMO_NAMES[i % DEMO_NAMES.length], receivedAt: Date.now(),
+    activity: i % 3 === 1 ? 'tanabata' : 'krathong', tanzakuColor: DEMO_TZ[i % 5],
   };
 }
 function toggleDemo() {
   if (demoTimer) { clearInterval(demoTimer); demoTimer = 0; return; }
   if (!opened) openCeremony({ id: `demo_host_${Date.now()}`, isHost: true, colors: HOST_COLORS, displayName: 'ลอยกระทง', handwritingImageBase64: null });
   let i = 0;
-  demoTimer = setInterval(() => { const k = demoKrathong(i++); spawnKrathong(k, { entry: true }); feed(k); setCount(count + 1); }, Number(params.get('demoMs')) || 2600);
+  demoTimer = setInterval(() => { const k = demoKrathong(i++); spawnItem(k, { entry: true }); feed(k); setCount(count + 1); }, Number(params.get('demoMs')) || 2600);
 }
 if (new URLSearchParams(location.search).get('demo') === '1') setTimeout(toggleDemo, 500);
 
@@ -588,6 +635,8 @@ function frame() {
   ripples.update(dt);
   applyLook(dt);
   farLights.update(t);
+  milky.update(t);
+  tanabata.update(t, dt);
   // gentle camera drift (update before projecting the wish cards)
   camera.position.x = Math.sin(t * 0.05) * 1.2;
   camera.position.y = 13 + Math.sin(t * 0.07) * 0.3;
@@ -606,5 +655,5 @@ function frame() {
 }
 frame();
 window.addEventListener('resize', env.resize);
-window.__stage = { spawnKrathong, openCeremony, floating, toggleDemo, renderer, signs };
+window.__stage = { spawnKrathong, spawnItem, openCeremony, floating, toggleDemo, renderer, signs, tanabata };
 assetFlags(); // warm the optional-asset lookup

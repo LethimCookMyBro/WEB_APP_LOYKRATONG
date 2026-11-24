@@ -1,7 +1,7 @@
-// mobile-client.js — participant flow:
-// language → name → wish → write & fold → capture → 3D preview → swipe to float.
+// mobile-client.js — participant flow
+// language → activity (ลอยกระทง / ทานาบาตะ) → name → wish → write → capture → send
 import {
-  WISHES, getWish, UI, LANGUAGE_MODES,
+  WISHES, getWish, UI, LANGUAGE_MODES, TANZAKU_COLORS,
   japaneseNameToThai, thaiNameToKatakana, katakanaReading,
 } from './language-data.js';
 import { renderPattern } from './pattern-view.js';
@@ -10,23 +10,25 @@ import { audio } from './audio.js';
 import { startCamera, captureFromFile } from './capture-ui.js';
 
 const DEFAULT_COLORS = { base: '#2E7D32', innerPetal: '#FF8F00', outerPetal: '#D84315', flower: '#FDD835' };
-const STEPS = ['name', 'wish', 'write', 'capture', 'float'];
-const STORE_KEY = 'loykrathong_state_v1';
+const STEPS = ['name', 'wish', 'write', 'capture', 'send'];
+const STORE_KEY = 'loykrathong_state_v2';
 
 /* ------------------------------------------------------------------ */
 /* State                                                               */
 /* ------------------------------------------------------------------ */
 const fresh = () => ({
   step: 'welcome',
-  mode: null,
+  mode: null,            // TH_TO_JP | JP_TO_TH
   lang: 'th',
+  activity: null,        // krathong | tanabata
   nameInput: '',
   nameOut: '',
   nameEdited: false,
   nameSource: '',
   wishId: null,
   customWish: '',
-  capture: null, // { dataURL, colors, found, inkRatio, source }
+  captures: {},          // { krathong: {...}, tanabata: {...} }
+  tanzakuColor: TANZAKU_COLORS[0].hex,
   id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
   sent: 0,
 });
@@ -35,29 +37,31 @@ try {
   const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
   if (saved && saved.mode) state = { ...fresh(), ...saved };
 } catch { /* storage unavailable */ }
-const hadProgress = state.step !== 'welcome';
-if (hadProgress) state.resumeStep = state.step;
+const hadProgress = state.step !== 'welcome' && !!state.mode;
+const resumeStep = state.step;
+if (hadProgress) state.step = 'welcome';
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify({ ...state, resumeStep: undefined })); } catch { /* quota / private mode */ }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch { /* quota / private mode */ }
 }
 
 const ceremony = { opened: false, opening: false };
-let floatScene = null;
 
 const $ = (sel, root = document) => root.querySelector(sel);
-const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild; };
+const h = (html) => { const tp = document.createElement('template'); tp.innerHTML = html.trim(); return tp.content.firstElementChild; };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const t = (k) => UI[state.lang][k] ?? UI.th[k] ?? k;
+const ta = (k) => t(`${k}_${state.activity || 'krathong'}`); // activity-specific string
+const isTanabata = () => state.activity === 'tanabata';
 const targetScript = () => (state.mode === LANGUAGE_MODES.TH_TO_JP ? 'ja' : 'th');
-const nativeLang = () => (state.mode === LANGUAGE_MODES.TH_TO_JP ? 'th' : 'ja');
-const targetFontClass = () => targetScript();
-const stepOf = (n) => t('stepOf').replace('{n}', n);
+const scriptOf = (text) => (/[ぁ-ヿ一-鿿]/.test(text) ? 'ja' : 'th');
+const capture = () => state.captures[state.activity] || null;
 const vibrate = (p) => { try { navigator.vibrate?.(p); } catch { /* ignore */ } };
+const ICON = { krathong: '🪷', tanabata: '🎋' };
 
 function toast(msg, type = '') {
   const el = h(`<div class="toast ${type}">${esc(msg)}</div>`);
   $('#toasts').appendChild(el);
-  setTimeout(() => { el.style.transition = 'opacity .4s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 400); }, 3200);
+  setTimeout(() => { el.style.transition = 'opacity .4s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 400); }, 3000);
 }
 
 /* ------------------------------------------------------------------ */
@@ -66,55 +70,47 @@ function toast(msg, type = '') {
 const socket = window.io ? window.io({ transports: ['websocket', 'polling'] }) : null;
 function setConn(on) {
   $('#connDot').className = 'dot ' + (on ? 'on' : 'off');
-  $('#connText').textContent = state.mode ? t(on ? 'connOn' : 'connOff') : '';
   $('#conn').title = t(on ? 'connOn' : 'connOff');
+  $('#conn').setAttribute('aria-label', t(on ? 'connOn' : 'connOff'));
   document.querySelectorAll('[data-conn]').forEach((n) => { n.className = 'dot ' + (on ? 'on' : 'off'); });
 }
 if (socket) {
   socket.on('connect', () => { setConn(true); socket.emit('join', { role: 'participant' }); });
-  socket.on('disconnect', () => { setConn(false); });
+  socket.on('disconnect', () => setConn(false));
   socket.on('ceremony_state', (s) => {
     const was = ceremony.opened;
     ceremony.opened = !!s.opened; ceremony.opening = !!s.opening;
     if (!was && ceremony.opened) onCeremonyOpened();
-    if (was && !ceremony.opened) floatUI?.refresh();
-    floatUI?.refresh();
+    sendUI?.refresh();
   });
 } else {
   setConn(false);
 }
 
 /* ------------------------------------------------------------------ */
-/* Router                                                              */
+/* Router + chrome                                                     */
 /* ------------------------------------------------------------------ */
 function go(step) {
-  if (step !== 'float') destroyFloat();
+  if (step !== 'send') destroySend();
   state.step = step;
   save();
   render();
-  window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
-}
-
-function canEnter(step) {
-  const i = STEPS.indexOf(step);
-  if (i >= 1 && !state.nameOut.trim()) return false;
-  if (i >= 2 && (!state.wishId || (state.wishId === 'custom' && !state.customWish.trim()))) return false;
-  if (i >= 4 && !state.capture) return false;
-  return true;
+  window.scrollTo(0, 0);
 }
 
 function renderChrome() {
   document.body.dataset.lang = state.lang;
+  document.body.dataset.activity = state.activity || '';
   document.documentElement.lang = state.lang;
-  $('#brandTitle').textContent = state.mode ? t('appTitle') : 'ลอยกระทง 3 มิติ';
-  $('#brandSub').textContent = state.mode ? t('appSub') : 'ไทย × 日本 · ภาษาและวัฒนธรรม';
+  $('#brandTitle').textContent = state.mode ? t('appTitle') : 'ลอยกระทง × ทานาบาตะ';
   const prog = $('#progress');
   const idx = STEPS.indexOf(state.step);
   prog.hidden = idx < 0;
   if (idx >= 0) {
-    const labels = [t('stepName'), t('stepWish'), t('stepWrite'), t('stepCapture'), t('stepFloat')];
-    prog.innerHTML = STEPS.map((s, i) => `<div class="seg ${i < idx ? 'done' : ''} ${i === idx ? 'active' : ''}" data-step="${s}"><div class="bar"></div>${esc(labels[i])}</div>`).join('');
-    prog.querySelectorAll('.seg.done').forEach((n) => { n.onclick = () => go(n.dataset.step); });
+    const labels = [t('stepName'), t('stepWish'), t('stepWrite'), t('stepCapture'), t('stepSend')];
+    prog.innerHTML = `<div class="prog-bars">${STEPS.map((s, i) => `<button type="button" class="pb ${i < idx ? 'done' : ''} ${i === idx ? 'active' : ''}" data-step="${s}" aria-label="${esc(labels[i])}" ${i < idx ? '' : 'disabled'}></button>`).join('')}</div>
+      <div class="prog-label"><span>${ICON[state.activity] || ''} ${esc(t('stepOf').replace('{n}', idx + 1))}</span> ${esc(labels[idx])}</div>`;
+    prog.querySelectorAll('.pb.done').forEach((n) => { n.onclick = () => go(n.dataset.step); });
   }
 }
 
@@ -130,162 +126,164 @@ function actionBar(buttons) {
     el.onclick = b.onClick;
     if (b.disabled) el.disabled = true;
     inner.appendChild(el);
-    refs[b.key || b.html] = el;
+    refs[b.key || 'k' + Object.keys(refs).length] = el;
   }
   return refs;
 }
+const backBtn = (to) => ({ html: `‹`, cls: 'btn-ghost btn-back', onClick: () => go(to), key: 'back' });
+const nextBtn = (to, disabled, label) => ({ html: `${esc(label || t('next'))} <span aria-hidden="true">›</span>`, cls: 'btn-primary', onClick: () => go(to), key: 'next', disabled });
+
+const head = (title, sub) => `<header class="sh"><h1 class="sh-title">${esc(title)}</h1>${sub ? `<p class="sh-sub">${esc(sub)}</p>` : ''}</header>`;
 
 function render() {
   renderChrome();
   const screen = $('#screen');
   screen.innerHTML = '';
   screen.style.animation = 'none'; void screen.offsetWidth; screen.style.animation = '';
-  ({ welcome: renderWelcome, name: renderName, wish: renderWish, write: renderWrite, capture: renderCapture, float: renderFloat })[state.step]?.(screen);
+  ({ welcome: renderWelcome, activity: renderActivity, name: renderName, wish: renderWish, write: renderWrite, capture: renderCapture, send: renderSend })[state.step]?.(screen);
 }
+
+/* ------------------------------------------------------------------ */
+/* Illustrations                                                       */
+/* ------------------------------------------------------------------ */
+const ART_KRATHONG = `<svg viewBox="0 0 120 90" aria-hidden="true"><defs><linearGradient id="ak" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ffd0dc"/><stop offset="1" stop-color="#ff7d9f"/></linearGradient><radialGradient id="af"><stop offset="0" stop-color="#fff6d0"/><stop offset=".5" stop-color="#ffc35c" stop-opacity=".7"/><stop offset="1" stop-color="#ff9a3c" stop-opacity="0"/></radialGradient></defs>
+  <ellipse cx="60" cy="80" rx="46" ry="6" fill="#ffc35c" opacity=".18"/>
+  <circle cx="60" cy="26" r="16" fill="url(#af)"/><path d="M60 13c3 5 4 9 0 15c-4-6-3-10 0-15z" fill="#fff4c9"/><rect x="58" y="27" width="4" height="22" rx="1.5" fill="#fff8ec"/>
+  <path d="M14 66c14 6 78 6 92 0c-5 11-25 16-46 16S19 77 14 66z" fill="#3b9a5a"/>
+  ${[-36, -18, 0, 18, 36].map((dx) => `<path d="M${60 + dx} 44c8 8 9 16 5 24h-10c-4-8-3-16 5-24z" fill="url(#ak)"/>`).join('')}
+</svg>`;
+const ART_TANABATA = `<svg viewBox="0 0 120 90" aria-hidden="true">
+  <path d="M8 18c30 6 70-4 104 4" stroke="#c9d7ff" stroke-opacity=".35" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <g fill="#fff">${[[16, 10], [40, 22], [70, 8], [96, 18], [108, 34], [26, 30]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.2"/>`).join('')}</g>
+  <path d="M30 90V6" stroke="#4fae6a" stroke-width="5"/><path d="M30 30h4M30 52h4M30 74h4" stroke="#2f7d47" stroke-width="5"/>
+  <path d="M32 24c20 2 44 10 66 6M32 48c18 2 40 8 60 4" stroke="#3d9558" stroke-width="2.4" fill="none"/>
+  ${[[70, 32, '#D9475A'], [92, 30, '#F2C94C'], [56, 52, '#7B5EA7'], [82, 54, '#3E9B5F'], [48, 30, '#F7F3EA']].map(([x, y, c], i) => `<g transform="rotate(${(i % 2 ? 1 : -1) * 6} ${x} ${y})"><path d="M${x} ${y - 4}v4" stroke="#ddd" stroke-width=".8"/><rect x="${x - 4}" y="${y}" width="8" height="24" rx="1" fill="${c}"/></g>`).join('')}
+  <g fill="#4fae6a">${[[44, 20], [64, 26], [86, 26], [52, 44], [74, 48]].map(([x, y]) => `<path d="M${x} ${y}c6-4 12-4 16-2c-6 3-11 4-16 2z"/>`).join('')}</g>
+</svg>`;
 
 /* ------------------------------------------------------------------ */
 /* Welcome                                                             */
 /* ------------------------------------------------------------------ */
 function renderWelcome(root) {
   actionBar(null);
-  root.appendChild(h(`
-    <section class="hero">
-      <img class="hero-lotus" src="/assets/lotus.svg" alt="">
-      <h1>ลอยกระทง 3 มิติ<span class="ja">3Dロイクラトン ・ ことばの交流</span></h1>
-      <p>เขียนชื่อและคำอธิษฐานเป็นภาษาของเพื่อน พับกระทงกระดาษ แล้วส่งขึ้นจอใหญ่<br>
-      <span style="font-family:var(--font-ja)">友だちの言葉で名前とねがいごとを書いて、紙のクラトンを大きな画面に流そう</span></p>
-    </section>`));
-  if (hadProgress && state.mode && state.resumeStep) {
-    const resume = h(`<div class="card" style="margin-top:18px">
-      <div class="row"><span style="font-size:22px">🪷</span><div style="flex:1"><b>${esc(t('resume'))}</b><div class="muted small">${esc(state.nameOut || '')}</div></div></div>
-      <div class="row" style="margin-top:12px"><button class="btn btn-primary" style="flex:1" data-a="resume">${esc(t('resume'))}</button><button class="btn" data-a="restart">${esc(t('restart'))}</button></div>
+  root.appendChild(h(`<section class="welcome">
+    <div class="hero-art"><div class="ha ha-k">${ART_KRATHONG}</div><div class="ha ha-t">${ART_TANABATA}</div></div>
+    <h1 class="hero-title">ลอยกระทง × ทานาบาตะ</h1>
+    <p class="hero-ja">ロイクラトン × 七夕</p>
+    <p class="hero-sub">แลกเปลี่ยนวัฒนธรรมไทย–ญี่ปุ่น · タイと日本の文化交流</p>
+  </section>`));
+  if (hadProgress && state.mode && state.step === 'welcome') {
+    const r = h(`<div class="resume">
+      <span class="resume-ico">${ICON[state.activity] || '✨'}</span>
+      <div class="resume-txt"><b>${esc(t('resume'))}</b><span>${esc(state.nameOut || '')}</span></div>
+      <button class="btn btn-sm btn-primary" data-a="resume">${esc(t('resume'))} ›</button>
+      <button class="btn btn-sm btn-ghost" data-a="restart" aria-label="${esc(t('restart'))}">✕</button>
     </div>`);
-    resume.querySelector('[data-a=resume]').onclick = () => { audio.init(); go(state.resumeStep); };
-    resume.querySelector('[data-a=restart]').onclick = () => { state = fresh(); save(); render(); };
-    root.appendChild(resume);
+    r.querySelector('[data-a=resume]').onclick = () => { audio.init(); go(resumeStep === 'welcome' ? 'activity' : resumeStep); };
+    r.querySelector('[data-a=restart]').onclick = () => { state = fresh(); save(); render(); };
+    root.appendChild(r);
   }
-  root.appendChild(h(`<ol class="how">
-    <li><b>1</b><span>ชื่อ<br><small>なまえ</small></span></li>
-    <li><b>2</b><span>คำอธิษฐาน<br><small>ねがいごと</small></span></li>
-    <li><b>3</b><span>เขียน & พับ<br><small>書く・折る</small></span></li>
-    <li><b>4</b><span>ถ่ายภาพ<br><small>撮る</small></span></li>
-    <li><b>5</b><span>ลอยกระทง<br><small>流す</small></span></li>
-  </ol>`));
-  root.appendChild(h(`<p class="center muted small" style="margin:18px 0 0">เลือกภาษาของคุณ · あなたの言語を選んでください</p>`));
-  const cards = h(`<div class="lang-cards">
-    <button class="lang-card" data-mode="TH_TO_JP" data-lang="th">
-      <span class="flag">🇹🇭</span>
-      <span><span class="t1">ฉันเป็นคนไทย</span><br><span class="t2">อยากฝึกเขียนชื่อและคำอวยพรเป็น <b>ภาษาญี่ปุ่น</b></span></span>
-      <span class="arrow">›</span>
-    </button>
-    <button class="lang-card" data-mode="JP_TO_TH" data-lang="ja">
-      <span class="flag">🇯🇵</span>
-      <span><span class="t1" style="font-family:var(--font-ja)">日本から来ました</span><br><span class="t2" style="font-family:var(--font-ja)">名前とねがいごとを<b>タイ語</b>で書いてみたい</span></span>
-      <span class="arrow">›</span>
-    </button>
+  const cards = h(`<div class="lang-pick">
+    <p class="pick-label">เลือกภาษาของคุณ · 言語を選ぶ</p>
+    <button class="lang-btn" data-mode="TH_TO_JP" data-lang="th"><span class="lf">🇹🇭</span><span class="lt"><b>ภาษาไทย</b><small>ฝึกเขียนภาษาญี่ปุ่น</small></span><span class="la">›</span></button>
+    <button class="lang-btn" data-mode="JP_TO_TH" data-lang="ja"><span class="lf">🇯🇵</span><span class="lt ja"><b>日本語</b><small>タイ語を書いてみる</small></span><span class="la">›</span></button>
   </div>`);
-  cards.querySelectorAll('.lang-card').forEach((b) => {
+  cards.querySelectorAll('.lang-btn').forEach((b) => {
     b.onclick = () => {
       audio.init();
-      const changed = state.mode && state.mode !== b.dataset.mode;
-      if (changed) { const id = state.id; state = fresh(); state.id = id; }
+      if (state.mode && state.mode !== b.dataset.mode) { const id = state.id; state = fresh(); state.id = id; }
       state.mode = b.dataset.mode;
       state.lang = b.dataset.lang;
-      go('name');
+      go('activity');
     };
   });
   root.appendChild(cards);
-  root.appendChild(h(`<p class="center muted small" style="margin-top:22px">กระดาษ A4 · A4用紙: <a class="link" href="/template.html" target="_blank" rel="noopener">template</a></p>`));
+  root.appendChild(h(`<p class="foot-links"><a href="/template.html" target="_blank" rel="noopener">🪷 กระดาษกระทง</a><a href="/template.html?type=tanzaku" target="_blank" rel="noopener">🎋 กระดาษทันซากุ</a></p>`));
 }
 
 /* ------------------------------------------------------------------ */
-/* Step 1 — Name                                                       */
+/* Activity                                                            */
+/* ------------------------------------------------------------------ */
+function renderActivity(root) {
+  // exchange: Japanese guests try the Thai tradition, Thai participants try the Japanese one
+  const rec = state.mode === LANGUAGE_MODES.JP_TO_TH ? 'krathong' : 'tanabata';
+  root.appendChild(h(`<div>${head(t('actTitle'), t('actSub'))}
+    <div class="act-list">
+      ${['krathong', 'tanabata'].map((a) => `<button class="act-card ${state.activity === a ? 'selected' : ''}" data-act="${a}">
+        <span class="act-art">${a === 'krathong' ? ART_KRATHONG : ART_TANABATA}</span>
+        <span class="act-txt"><b>${esc(t('act_' + a))}${a === rec ? `<em class="badge">${esc(t('recommended'))}</em>` : ''}</b><small>${esc(t(`act_${a}_sub`))}</small></span>
+      </button>`).join('')}
+    </div>
+    <p class="story">🎋 ${esc(t('tanabataStory'))}</p>
+  </div>`));
+  root.querySelectorAll('.act-card').forEach((b) => {
+    b.onclick = () => { state.activity = b.dataset.act; save(); vibrate(10); go(state.nameOut ? 'wish' : 'name'); };
+  });
+  actionBar([backBtn('welcome')]);
+}
+
+/* ------------------------------------------------------------------ */
+/* Name                                                                */
 /* ------------------------------------------------------------------ */
 function convertName(input) {
   return state.mode === LANGUAGE_MODES.TH_TO_JP ? thaiNameToKatakana(input) : japaneseNameToThai(input);
 }
+const patternLabels = () => ({ play: t('patPlay'), slow: t('patSlow'), all: t('patAll') });
 
 function renderName(root) {
   const ja = targetScript() === 'ja';
-  root.appendChild(h(`<div>
-    <div class="eyebrow">${esc(stepOf(1))}</div>
-    <h2 class="h1">${esc(t('nameTitle'))}</h2>
-    <p class="muted" style="margin:0 0 14px">${esc(t('nameHint'))}</p>
+  root.appendChild(h(`<div>${head(t('nameTitle'), t('nameSub'))}
     <label class="sr-only" for="nameInput">${esc(t('nameTitle'))}</label>
-    <input id="nameInput" class="input" autocomplete="off" autocapitalize="words" spellcheck="false" maxlength="40" placeholder="${esc(t('namePlaceholder'))}" value="${esc(state.nameInput)}">
+    <input id="nameInput" class="input input-lg" autocomplete="off" autocapitalize="words" spellcheck="false" maxlength="40" placeholder="${esc(t('namePlaceholder'))}" value="${esc(state.nameInput)}">
     <div id="nameResult"></div>
-    <div id="namePattern"></div>
   </div>`));
   const input = $('#nameInput');
-  const bar = actionBar([
-    { html: `‹ ${esc(t('back'))}`, cls: 'btn-ghost', onClick: () => go('welcome'), key: 'back' },
-    { html: `${esc(t('nextToWish'))} ›`, cls: 'btn-primary', onClick: () => go('wish'), key: 'next', disabled: !state.nameOut.trim() },
-  ]);
-  let patternTimer = null;
+  const bar = actionBar([backBtn('activity'), nextBtn('wish', !state.nameOut.trim())]);
+  let patTimer = 0;
   function showResult(fromInput) {
     const res = $('#nameResult');
     if (fromInput && !state.nameEdited) {
       const out = convertName(state.nameInput);
       if (out.source === 'kanji') {
-        res.innerHTML = `<div class="notice" style="margin-top:14px">⚠️ ${esc(t('kanjiError'))}</div>`;
-        state.nameOut = ''; bar.next.disabled = true; $('#namePattern').innerHTML = ''; save();
+        res.innerHTML = `<p class="warn-line">⚠️ ${esc(t('kanjiError'))}</p>`;
+        state.nameOut = ''; bar.next.disabled = true; save();
         return;
       }
       state.nameOut = out.text; state.nameSource = out.source;
     }
     bar.next.disabled = !state.nameOut.trim();
     save();
-    if (!state.nameInput.trim() && !state.nameOut) { res.innerHTML = ''; $('#namePattern').innerHTML = ''; return; }
+    if (!state.nameOut) { res.innerHTML = ''; return; }
     const reading = ja ? katakanaReading(state.nameOut).map((u) => `<span class="mora"><b>${esc(u.kana)}</b><span>${esc(u.romaji)}</span></span>`).join('') : '';
-    res.innerHTML = `<div class="name-result">
-      <div class="muted small">${esc(t('nameResult'))}</div>
-      <div class="big ${targetFontClass()}" id="nameBig" spellcheck="false">${esc(state.nameOut)}</div>
-      ${reading ? `<div class="reading">${reading}</div>` : `<div class="muted small" style="margin-top:6px">${esc(state.nameInput)}</div>`}
-      <div class="row-wrap" style="justify-content:center;margin-top:12px">
-        <span class="chip ${state.nameSource === 'dictionary' && !state.nameEdited ? 'ok' : 'warn'}">${state.nameSource === 'dictionary' && !state.nameEdited ? '✓ ' + esc(t('nameDict')) : '≈ ' + esc(t('nameApprox'))}</span>
+    const approx = state.nameSource !== 'dictionary' || state.nameEdited;
+    res.innerHTML = `<div class="result-card">
+      <div class="rc-label">${esc(t('nameResult'))}</div>
+      <div class="rc-big ${targetScript()}" id="nameBig" spellcheck="false">${esc(state.nameOut)}</div>
+      ${reading ? `<div class="reading">${reading}</div>` : ''}
+      <div class="rc-actions">
+        <button class="pill" id="speakName">🔊 ${esc(t('listen'))}</button>
+        <button class="pill" id="editName">✏️ ${esc(approx ? t('nameApprox') : t('nameEdit'))}</button>
       </div>
-      <div class="row-wrap" style="justify-content:center;margin-top:10px">
-        <button class="btn btn-sm" id="editName">✏️ ${esc(t('nameEdit'))}</button>
-        <button class="btn btn-sm" id="speakName">🔊 ${esc(t('listen'))}</button>
-      </div>
+      <div class="rc-pattern"><div class="rc-sub">✍️ ${esc(t('practice'))}</div><div id="namePat"></div></div>
     </div>`;
     $('#editName').onclick = () => {
       const big = $('#nameBig');
       big.contentEditable = 'true'; big.focus();
       document.getSelection()?.selectAllChildren(big);
-      big.oninput = () => { state.nameEdited = true; state.nameOut = big.textContent.replace(/\s+/g, ' ').trim().slice(0, 40); bar.next.disabled = !state.nameOut; save(); schedulePattern(); };
+      big.oninput = () => { state.nameEdited = true; state.nameOut = big.textContent.replace(/\s+/g, ' ').trim().slice(0, 40); bar.next.disabled = !state.nameOut; save(); };
       big.onblur = () => { big.contentEditable = 'false'; showResult(false); };
     };
     $('#speakName').onclick = () => speak(state.nameOut, ja ? 'ja-JP' : 'th-TH');
-    schedulePattern();
+    clearTimeout(patTimer);
+    patTimer = setTimeout(() => { const el = $('#namePat'); if (el) renderPattern(el, { text: state.nameOut, script: targetScript(), labels: patternLabels() }); }, 500);
   }
-  function schedulePattern() {
-    clearTimeout(patternTimer);
-    patternTimer = setTimeout(() => {
-      const box = $('#namePattern');
-      if (!box) return;
-      if (!state.nameOut) { box.innerHTML = ''; return; }
-      box.innerHTML = `<div class="card" style="margin-top:14px"><div class="h2">✍️ ${esc(t('practice'))}</div><div id="namePat"></div>
-        <div class="pattern-tip"><span class="ico">💡</span><span>${esc(ja ? t('strokeTip') : t('thaiTip'))}</span></div></div>`;
-      renderPattern($('#namePat'), { text: state.nameOut, script: targetScript(), labels: patternLabels() });
-    }, 650);
-  }
-  input.addEventListener('input', () => {
-    state.nameInput = input.value;
-    state.nameEdited = false;
-    showResult(true);
-  });
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && state.nameOut) { input.blur(); } });
-  if (state.nameInput || state.nameOut) showResult(!state.nameEdited && !state.nameOut);
-  else setTimeout(() => input.focus(), 300);
-}
-
-function patternLabels() {
-  return { play: t('patPlay'), slow: t('patSlow'), all: t('patAll') };
+  input.addEventListener('input', () => { state.nameInput = input.value; state.nameEdited = false; showResult(true); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+  if (state.nameOut) showResult(false); else setTimeout(() => input.focus(), 300);
 }
 
 /* ------------------------------------------------------------------ */
-/* Speech                                                              */
+/* Speech + sheets                                                     */
 /* ------------------------------------------------------------------ */
 function getVoices() {
   return new Promise((resolve) => {
@@ -307,77 +305,52 @@ async function speak(text, lang) {
   speechSynthesis.speak(u);
 }
 
-/* ------------------------------------------------------------------ */
-/* Bottom sheet                                                        */
-/* ------------------------------------------------------------------ */
 function openSheet(content) {
   const back = h('<div class="sheet-backdrop"></div>');
-  const sheet = h('<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div></div>');
+  const sheet = h('<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div><button class="sheet-x" aria-label="close">✕</button></div>');
   sheet.appendChild(content);
   document.body.append(back, sheet);
   document.body.style.overflow = 'hidden';
-  const close = () => { back.remove(); sheet.remove(); document.body.style.overflow = ''; speechSynthesis?.cancel?.(); };
+  const close = () => { back.remove(); sheet.remove(); document.body.style.overflow = ''; window.speechSynthesis?.cancel?.(); };
   back.onclick = close;
-  // swipe down to close
-  let sy = null;
-  sheet.querySelector('.grab').addEventListener('pointerdown', (e) => { sy = e.clientY; });
-  window.addEventListener('pointerup', (e) => { if (sy !== null && e.clientY - sy > 60) close(); sy = null; }, { once: false });
+  sheet.querySelector('.sheet-x').onclick = close;
   return close;
 }
 
 /* ------------------------------------------------------------------ */
-/* Step 2 — Wish                                                       */
+/* Wish                                                                */
 /* ------------------------------------------------------------------ */
-const scriptOf = (text) => (/[\u3041-\u30ff\u4e00-\u9fff]/.test(text) ? 'ja' : 'th');
-
 function wishTexts(w) {
-  if (!w) {
-    // custom wish typed by the participant
-    return { target: state.customWish, native: '', reading: '', kana: '', cat: t('customCat'), script: scriptOf(state.customWish) };
-  }
+  if (!w) return { target: state.customWish, native: '', reading: '', kana: '', cat: t('customCat'), script: scriptOf(state.customWish) };
   const ja = targetScript() === 'ja';
   return {
-    target: ja ? w.ja : w.th,
-    native: ja ? w.th : w.ja,
-    reading: ja ? w.romaji : w.thPhonetic,
-    kana: ja ? w.jaKana : '',
-    cat: w.category[state.lang],
-    script: targetScript(),
+    target: ja ? w.ja : w.th, native: ja ? w.th : w.ja, reading: ja ? w.romaji : w.thPhonetic,
+    kana: ja ? w.jaKana : '', cat: w.category[state.lang], script: targetScript(),
   };
 }
-
 const currentWish = () => (state.wishId === 'custom' ? null : getWish(state.wishId));
 
 function renderWish(root) {
-  root.appendChild(h(`<div>
-    <div class="eyebrow">${esc(stepOf(2))}</div>
-    <h2 class="h1">${esc(t('wishTitle'))}</h2>
-    <p class="muted" style="margin:0">${esc(t('wishHint'))}</p>
-    <div class="wish-grid" id="wishGrid"></div>
-  </div>`));
+  root.appendChild(h(`<div>${head(t('wishTitle'), t('wishSub'))}<div class="wish-list" id="wishGrid"></div></div>`));
   const grid = $('#wishGrid');
-  const bar = actionBar([
-    { html: `‹ ${esc(t('back'))}`, cls: 'btn-ghost', onClick: () => go('name'), key: 'back' },
-    { html: `${esc(t('nextToWrite'))} ›`, cls: 'btn-primary', onClick: () => go('write'), key: 'next', disabled: !state.wishId },
-  ]);
+  const bar = actionBar([backBtn('name'), nextBtn('write', !state.wishId)]);
   const draw = () => {
     grid.innerHTML = '';
     for (const w of WISHES) {
       const x = wishTexts(w);
-      const card = h(`<button class="wish-card ${state.wishId === w.id ? 'selected' : ''}" type="button">
-        <span class="ico">${w.icon}</span>
-        <span><span class="cat">${esc(x.cat)}</span><span class="target ${targetFontClass()}" style="display:block">${esc(x.target)}</span><span class="reading-line">${esc(x.reading)}</span><span class="native">${esc(t('meaning'))}: ${esc(x.native)}</span></span>
-        <span class="check">✓</span>
+      const card = h(`<button class="wish ${state.wishId === w.id ? 'selected' : ''}" type="button">
+        <span class="wish-ico">${w.icon}</span>
+        <span class="wish-txt"><span class="wish-target ${x.script}">${esc(x.target)}</span><span class="wish-mean">${esc(x.native)}</span></span>
+        <span class="wish-check" aria-hidden="true">✓</span>
       </button>`);
       card.onclick = () => openWishLesson(w, () => { state.wishId = w.id; save(); bar.next.disabled = false; draw(); });
       grid.appendChild(card);
     }
-    // custom wish card
     const custom = state.wishId === 'custom' && state.customWish;
-    const cc = h(`<button class="wish-card ${state.wishId === 'custom' ? 'selected' : ''}" type="button">
-      <span class="ico">✍️</span>
-      <span><span class="cat">${esc(t('customCat'))}</span><span class="target ${custom ? scriptOf(state.customWish) : ''}" style="display:block">${esc(custom ? state.customWish : t('customCardHint'))}</span></span>
-      <span class="check">✓</span>
+    const cc = h(`<button class="wish wish-custom ${state.wishId === 'custom' ? 'selected' : ''}" type="button">
+      <span class="wish-ico">✍️</span>
+      <span class="wish-txt"><span class="wish-target ${custom ? scriptOf(state.customWish) : ''}">${esc(custom ? state.customWish : t('customCardHint'))}</span><span class="wish-mean">${esc(t('customCat'))}</span></span>
+      <span class="wish-check" aria-hidden="true">✓</span>
     </button>`);
     cc.onclick = () => openCustomWish(() => { bar.next.disabled = false; draw(); });
     grid.appendChild(cc);
@@ -386,41 +359,36 @@ function renderWish(root) {
 }
 
 function openCustomWish(onChoose) {
-  const content = h(`<div>
-    <div class="eyebrow">✍️ ${esc(t('customCat'))}</div>
-    <div class="h2">${esc(t('customTitle'))}</div>
-    <p class="muted small" style="margin:0 0 10px">${esc(t('customHint'))}</p>
+  const content = h(`<div class="sheet-body">
+    <h2 class="sheet-title">${esc(t('customTitle'))}</h2>
     <label class="sr-only" for="customWish">${esc(t('customTitle'))}</label>
-    <textarea id="customWish" class="input" rows="2" maxlength="60" style="padding:12px 16px;min-height:76px;resize:none" placeholder="${esc(t('customPlaceholder'))}"></textarea>
-    <div class="row" style="justify-content:space-between;margin-top:6px"><span class="muted small" data-count>0/60</span></div>
-    <div class="notice info" style="margin-top:8px">ℹ️ <span>${esc(t('customNote'))}</span></div>
-    <div id="customPattern" style="margin-top:6px"></div>
-    <p class="muted small center" data-snote hidden>${esc(t('customStrokeNote'))}</p>
-    <button class="btn btn-primary btn-block" style="margin-top:14px" data-a="choose" disabled>✓ ${esc(t('customUse'))}</button>
+    <textarea id="customWish" class="input" rows="2" maxlength="60" placeholder="${esc(t('customPlaceholder'))}"></textarea>
+    <div class="count" data-count>0/60</div>
+    <p class="hint">ℹ️ ${esc(t('customNote'))}</p>
+    <div id="customPattern"></div>
+    <button class="btn btn-primary btn-block" data-a="choose" disabled>✓ ${esc(t('customUse'))}</button>
   </div>`);
   const close = openSheet(content);
-  const ta = content.querySelector('#customWish');
+  const area = content.querySelector('#customWish');
   const btn = content.querySelector('[data-a=choose]');
-  ta.value = state.customWish;
+  area.value = state.customWish;
   let timer = 0;
   const update = () => {
-    const text = ta.value.replace(/\s+/g, ' ').trim();
+    const text = area.value.replace(/\s+/g, ' ').trim();
     content.querySelector('[data-count]').textContent = `${[...text].length}/60`;
     btn.disabled = !text;
     clearTimeout(timer);
     timer = setTimeout(() => {
       const box = content.querySelector('#customPattern');
-      if (!text) { box.innerHTML = ''; content.querySelector('[data-snote]').hidden = true; return; }
-      const script = scriptOf(text);
-      renderPattern(box, { text, script, labels: patternLabels() });
-      content.querySelector('[data-snote]').hidden = false;
+      if (!text) { box.innerHTML = ''; return; }
+      renderPattern(box, { text, script: scriptOf(text), labels: patternLabels() });
     }, 450);
   };
-  ta.addEventListener('input', update);
+  area.addEventListener('input', update);
   update();
-  setTimeout(() => ta.focus(), 300);
+  setTimeout(() => area.focus(), 300);
   btn.onclick = () => {
-    state.customWish = ta.value.replace(/\s+/g, ' ').trim().slice(0, 60);
+    state.customWish = area.value.replace(/\s+/g, ' ').trim().slice(0, 60);
     state.wishId = 'custom';
     save(); onChoose(); close(); vibrate(15);
   };
@@ -430,26 +398,22 @@ function openWishLesson(w, onChoose) {
   const x = wishTexts(w);
   const ja = targetScript() === 'ja';
   let useKana = false;
-  const content = h(`<div class="lesson">
-    <div class="eyebrow">${w.icon} ${esc(x.cat)}</div>
-    <div class="target ${targetFontClass()}">${esc(x.target)}</div>
-    ${x.kana ? `<div class="kana">${esc(x.kana)}</div>` : ''}
-    <div class="phon">${esc(x.reading)}</div>
-    <div class="mean"><b>${esc(t('meaning'))}:</b> ${esc(x.native)} · ${esc(w.en)}</div>
-    <div class="row-wrap" style="justify-content:center;margin-top:12px">
-      <button class="btn btn-sm" data-a="speak">🔊 ${esc(t('listen'))}</button>
-      <button class="btn btn-sm" data-a="speakNative">🔊 ${esc(nativeLang() === 'th' ? 'ไทย' : '日本語')}</button>
-    </div>
-    ${ja ? `<div style="margin-top:14px"><div class="seg-toggle"><button class="on" data-k="0">${esc(t('kanjiMode'))}</button><button data-k="1">${esc(t('kanaMode'))}</button></div></div>` : ''}
-    <div id="lessonPattern" style="margin-top:6px"></div>
-    <div class="pattern-tip"><span class="ico">💡</span><span>${esc(ja ? t('strokeTip') : t('thaiTip'))}</span></div>
-    <button class="btn btn-primary btn-block" style="margin-top:16px" data-a="choose">✓ ${esc(t('chooseThis'))}</button>
+  const content = h(`<div class="sheet-body lesson">
+    <div class="lesson-cat">${w.icon} ${esc(x.cat)}</div>
+    <div class="lesson-target ${x.script}">${esc(x.target)}</div>
+    ${x.kana ? `<div class="lesson-kana">${esc(x.kana)}</div>` : ''}
+    <div class="lesson-read">${esc(x.reading)}</div>
+    <div class="lesson-mean">${esc(t('meaning'))}: ${esc(x.native)}</div>
+    <div class="rc-actions"><button class="pill" data-a="speak">🔊 ${esc(t('listen'))}</button></div>
+    ${ja ? `<div class="seg-toggle"><button class="on" data-k="0">${esc(t('kanjiMode'))}</button><button data-k="1">${esc(t('kanaMode'))}</button></div>` : ''}
+    <div id="lessonPattern"></div>
+    <p class="hint center">💡 ${esc(ja ? t('strokeTip') : t('thaiTip'))}</p>
+    ${onChoose ? `<button class="btn btn-primary btn-block" data-a="choose">✓ ${esc(t('chooseThis'))}</button>` : ''}
   </div>`);
   const close = openSheet(content);
   const pat = () => renderPattern(content.querySelector('#lessonPattern'), { text: ja ? (useKana ? w.jaKana : w.ja) : w.th, script: targetScript(), labels: patternLabels() });
   pat();
   content.querySelector('[data-a=speak]').onclick = () => speak(ja ? w.ja : w.th, ja ? 'ja-JP' : 'th-TH');
-  content.querySelector('[data-a=speakNative]').onclick = () => speak(ja ? w.th : w.ja, ja ? 'th-TH' : 'ja-JP');
   content.querySelectorAll('.seg-toggle button').forEach((b) => {
     b.onclick = () => {
       useKana = b.dataset.k === '1';
@@ -457,125 +421,115 @@ function openWishLesson(w, onChoose) {
       pat();
     };
   });
-  content.querySelector('[data-a=choose]').onclick = () => { onChoose(); close(); vibrate(15); };
+  const choose = content.querySelector('[data-a=choose]');
+  if (choose) choose.onclick = () => { onChoose(); close(); vibrate(15); };
 }
 
 /* ------------------------------------------------------------------ */
-/* Step 3 — Write & fold                                               */
+/* Write                                                               */
 /* ------------------------------------------------------------------ */
-const FOLD_ICONS = [
-  '<svg viewBox="0 0 40 40" fill="none" stroke="#ffe1a1" stroke-width="2" stroke-linecap="round"><path d="M8 30c4-10 10-16 22-22"/><path d="M26 6l8 8-4 4-8-8z" fill="#ff8fab" stroke="#ff8fab"/><circle cx="10" cy="30" r="3" fill="#5fd3b3" stroke="none"/></svg>',
-  '<svg viewBox="0 0 40 40" fill="none" stroke="#ffe1a1" stroke-width="2"><rect x="5" y="9" width="30" height="22" rx="2"/><path d="M10 17h14M10 23h20" stroke-linecap="round"/><rect x="3" y="7" width="4" height="4" fill="#ffe1a1"/><rect x="33" y="29" width="4" height="4" fill="#ffe1a1"/></svg>',
-  '<svg viewBox="0 0 40 40" fill="none" stroke="#ffe1a1" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="28" r="5"/><circle cx="11" cy="12" r="5"/><path d="M15 25L34 8M15 15l19 17"/></svg>',
-  '<svg viewBox="0 0 40 40" fill="none" stroke="#ffe1a1" stroke-width="2" stroke-linejoin="round"><path d="M6 28l8-14h12l8 14z"/><path d="M14 14l-4-8M26 14l4-8" stroke-dasharray="3 3"/></svg>',
-  '<svg viewBox="0 0 40 40" fill="none" stroke="#ffe1a1" stroke-width="2" stroke-linejoin="round"><path d="M4 26c6 6 26 6 32 0"/><path d="M8 26l3-10 5 6 4-10 4 10 5-6 3 10" fill="#ff8fab55"/><path d="M20 8v6" stroke="#f5c66a"/></svg>',
-];
+/** Vertical tanzaku strip (preview / send view). */
+function tanzakuHTML({ color, image = null, wish = '', name = '', script = 'ja', big = false }) {
+  const light = ['#F7F3EA', '#F2C94C'].includes(color);
+  const vertical = script === 'ja';
+  const body = image
+    ? `<img class="tz-img" alt="" src="${image}">`
+    : `<div class="tz-text ${vertical ? 'vert' : ''} ${script}"><span class="tz-wish">${esc(wish)}</span><span class="tz-name">${esc(name)}</span></div>`;
+  return `<div class="tanzaku ${big ? 'big' : ''} ${light ? 'light' : ''}" style="--tz:${color}"><span class="tz-hole"></span><div class="tz-paper">${body}</div></div>`;
+}
 
 function renderWrite(root) {
   const w = currentWish();
   const x = wishTexts(w);
-  root.appendChild(h(`<div>
-    <div class="eyebrow">${esc(stepOf(3))}</div>
-    <h2 class="h1">${esc(t('writeTitle'))}</h2>
-    <p class="muted" style="margin:0 0 14px">${esc(t('writeHint'))}</p>
-    <div class="muted small" style="margin:0 0 6px">✍️ ${esc(t('writePreview'))}</div>
-    <div class="paper-preview">
-      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-      <div class="muted small" style="color:#9a8f80">${esc(t('writeYourName'))}</div>
-      <div class="pp-name ${targetFontClass()}" style="font-family:var(--font-trace-${targetScript()})">${esc(state.nameOut)}</div>
-      <div class="muted small" style="color:#9a8f80;margin-top:4px">${esc(t('writeYourWish'))}</div>
-      <div class="pp-wish" style="font-family:var(--font-trace-${x.script})">${esc(x.target)}</div>
+  const preview = isTanabata()
+    ? `<div class="tz-preview">${tanzakuHTML({ color: '#fffdf7', wish: x.target, name: state.nameOut, script: x.script })}</div>`
+    : `<div class="paper-preview">
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+        <div class="pp-name" style="font-family:var(--font-trace-${targetScript()})">${esc(state.nameOut)}</div>
+        <div class="pp-wish" style="font-family:var(--font-trace-${x.script})">${esc(x.target)}</div>
+      </div>`;
+  root.appendChild(h(`<div>${head(ta('writeTitle'), t('writeSub'))}
+    ${preview}
+    <div class="rc-actions">
+      <button class="pill" data-a="patName">✍️ ${esc(t('howToWrite'))} · ${esc(t('writeYourName'))}</button>
+      <button class="pill" data-a="patWish">✍️ ${esc(t('howToWrite'))} · ${esc(t('writeYourWish'))}</button>
     </div>
-    <div class="row-wrap" style="justify-content:center;margin-top:12px">
-      <button class="btn btn-sm" data-a="patName">✍️ ${esc(t('writeYourName'))}</button>
-      <button class="btn btn-sm" data-a="patWish">✍️ ${esc(t('writeYourWish'))}</button>
-    </div>
-    <div class="card" style="margin-top:16px">
-      <div class="h2">🪷 ${esc(t('foldTitle'))}</div>
-      <ol class="steps-list">${t('fold').map((s, i) => `<li><span class="ill">${FOLD_ICONS[i]}</span><p>${esc(s)}</p></li>`).join('')}</ol>
-      <a class="btn btn-sm btn-block" style="margin-top:14px" href="/template.html" target="_blank" rel="noopener">📄 ${esc(t('templateLink'))}</a>
-    </div>
+    <ol class="mini-steps">${t(isTanabata() ? 'steps_tanabata' : 'steps_krathong').map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+    <a class="btn btn-sm btn-ghost btn-block" href="${isTanabata() ? '/template.html?type=tanzaku' : '/template.html'}" target="_blank" rel="noopener">📄 ${esc(t('templateLink'))}</a>
   </div>`));
   root.querySelector('[data-a=patName]').onclick = () => {
-    const c = h('<div><div class="h2 center">' + esc(state.nameOut) + '</div><div class="p"></div></div>');
+    const c = h('<div class="sheet-body"><h2 class="sheet-title center"></h2><div class="p"></div></div>');
+    c.querySelector('h2').textContent = state.nameOut;
     openSheet(c); renderPattern(c.querySelector('.p'), { text: state.nameOut, script: targetScript(), size: 'lg', labels: patternLabels() });
   };
   root.querySelector('[data-a=patWish]').onclick = () => {
-    if (w) { openWishLesson(w, () => {}); return; }
-    const c = h('<div><div class="h2 center"></div><div class="p"></div></div>');
-    c.querySelector('.h2').textContent = x.target;
+    if (w) { openWishLesson(w, null); return; }
+    const c = h('<div class="sheet-body"><h2 class="sheet-title center"></h2><div class="p"></div></div>');
+    c.querySelector('h2').textContent = x.target;
     openSheet(c); renderPattern(c.querySelector('.p'), { text: x.target, script: x.script, size: 'lg', labels: patternLabels() });
   };
-  actionBar([
-    { html: `‹ ${esc(t('back'))}`, cls: 'btn-ghost', onClick: () => go('wish') },
-    { html: `📷 ${esc(t('nextToCapture'))} ›`, cls: 'btn-primary', onClick: () => go('capture') },
-  ]);
+  actionBar([backBtn('wish'), nextBtn('capture')]);
 }
 
 /* ------------------------------------------------------------------ */
-/* Step 4 — Capture                                                    */
+/* Capture                                                             */
 /* ------------------------------------------------------------------ */
+const CAPTURE_ART_KRATHONG = `<svg viewBox="0 0 200 130" aria-hidden="true"><defs><linearGradient id="pg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ffc2d1"/><stop offset="1" stop-color="#ff8fab"/></linearGradient></defs>
+  <g transform="translate(100 66)">${Array.from({ length: 12 }, (_, i) => `<path transform="rotate(${i * 30})" d="M0 -58 C13 -45 15 -36 9 -29 L-9 -29 C-15 -36 -13 -45 0 -58z" fill="url(#pg)" opacity=".9"/>`).join('')}
+  <circle r="32" fill="#2E7D32"/><rect x="-24" y="-17" width="48" height="34" rx="3" fill="#fffdf7"/>
+  ${[[-28, -21], [22, -21], [-28, 15], [22, 15]].map(([x, y]) => `<rect x="${x}" y="${y}" width="6" height="6" fill="#111"/>`).join('')}
+  <path d="M-13 -4h26M-17 6h34" stroke="#333" stroke-width="2" stroke-linecap="round"/></g></svg>`;
+const CAPTURE_ART_TANZAKU = `<svg viewBox="0 0 200 130" aria-hidden="true"><g transform="translate(100 65)">
+  <rect x="-20" y="-60" width="40" height="120" rx="3" fill="#fffdf7"/>
+  ${[[-17, -57], [11, -57], [-17, 51], [11, 51]].map(([x, y]) => `<rect x="${x}" y="${y}" width="6" height="6" fill="#111"/>`).join('')}
+  <path d="M2 -42v52M-6 -30v30" stroke="#333" stroke-width="2.2" stroke-linecap="round"/><path d="M-6 30v14" stroke="#555" stroke-width="2" stroke-linecap="round"/></g></svg>`;
+
 function renderCapture(root) {
-  const c = state.capture;
-  root.appendChild(h(`<div>
-    <div class="eyebrow">${esc(stepOf(4))}</div>
-    <h2 class="h1">${esc(c ? t('resultTitle') : t('captureTitle'))}</h2>
-    <p class="muted" style="margin:0 0 14px">${esc(c ? t('paletteHint') : t('captureHint'))}</p>
-    <div id="capBody"></div>
-  </div>`));
+  const c = capture();
+  root.appendChild(h(`<div>${head(c ? t('resultTitle') : t('captureTitle'), c ? '' : ta('captureSub'))}<div id="capBody"></div></div>`));
   const body = $('#capBody');
   if (c) {
-    body.appendChild(h(`<div class="card">
-      <div class="extract-preview"><img alt="" src="${c.dataURL}"></div>
-      ${c.inkRatio !== undefined && c.inkRatio < 0.002 ? `<div class="notice" style="margin-top:10px">⚠️ ${state.lang === 'ja' ? '字が薄いかもしれません。濃いペンで書くか、明るい所で撮り直してください' : 'ลายมืออาจจางเกินไป ลองใช้ปากกาสีเข้มหรือถ่ายในที่สว่างขึ้น'}</div>` : ''}
-      <div class="palette" id="palette"></div>
-    </div>`));
-    const pal = $('#palette');
-    for (const zone of ['base', 'innerPetal', 'outerPetal', 'flower']) {
-      const sw = h(`<label class="swatch"><span class="sw" style="background:${c.colors[zone]}"><input type="color" value="${c.colors[zone].toLowerCase()}" aria-label="${esc(t('zone')[zone])}"></span>${esc(t('zone')[zone])}${c.found && c.found[zone] === false ? ' *' : ''}</label>`);
-      const inp = sw.querySelector('input');
-      inp.oninput = () => { c.colors[zone] = inp.value.toUpperCase(); sw.querySelector('.sw').style.background = inp.value; save(); };
-      pal.appendChild(sw);
+    if (isTanabata()) {
+      body.appendChild(h(`<div class="cap-result tall">
+        <div class="tz-preview">${tanzakuHTML({ color: state.tanzakuColor, image: c.dataURL })}</div>
+        <div class="tz-colors"><div class="rc-sub">${esc(t('colorTitle'))} · <span class="muted">${esc(t('colorNote'))}</span></div>
+          <div class="tzc-row">${TANZAKU_COLORS.map((col) => `<button class="tzc ${state.tanzakuColor === col.hex ? 'on' : ''}" style="--c:${col.hex}" data-c="${col.hex}" aria-label="${esc(col[state.lang])}"><span></span><small>${esc(col[state.lang])}</small></button>`).join('')}</div>
+        </div>
+      </div>`));
+      body.querySelectorAll('.tzc').forEach((b) => { b.onclick = () => { state.tanzakuColor = b.dataset.c; save(); render(); }; });
+    } else {
+      body.appendChild(h(`<div class="cap-result">
+        <div class="extract-preview"><img alt="" src="${c.dataURL}"></div>
+        <div class="rc-sub">${esc(t('paletteHint'))}</div>
+        <div class="palette" id="palette"></div>
+      </div>`));
+      const pal = $('#palette');
+      for (const zone of ['base', 'innerPetal', 'outerPetal', 'flower']) {
+        const sw = h(`<label class="swatch"><span class="sw" style="background:${c.colors[zone]}"><input type="color" value="${c.colors[zone].toLowerCase()}" aria-label="${esc(t('zone')[zone])}"></span>${esc(t('zone')[zone])}${c.found && c.found[zone] === false ? ' *' : ''}</label>`);
+        const inp = sw.querySelector('input');
+        inp.oninput = () => { c.colors[zone] = inp.value.toUpperCase(); sw.querySelector('.sw').style.background = inp.value; save(); };
+        pal.appendChild(sw);
+      }
+      if (c.found && Object.values(c.found).some((v) => v === false)) body.appendChild(h(`<p class="hint center">${esc(t('defaultColorNote'))}</p>`));
     }
-    if (c.found && Object.values(c.found).some((v) => v === false)) {
-      body.appendChild(h(`<p class="muted small center" style="margin-top:8px">* ${state.lang === 'ja' ? '色が読み取れなかった部分は標準の色です' : 'สีที่อ่านไม่ได้ ใช้สีเริ่มต้นแทน'}</p>`));
-    }
-    body.appendChild(h(`<div class="row-wrap" style="justify-content:center;margin-top:14px">
-      <button class="btn btn-sm" data-a="retake">📷 ${esc(t('retake'))}</button>
-      <button class="btn btn-sm" data-a="draw">✏️ ${esc(t('drawInstead'))}</button>
-    </div>`));
+    if (c.inkRatio !== undefined && c.inkRatio < 0.002) body.appendChild(h(`<p class="warn-line">⚠️ ${esc(t('faintInk'))}</p>`));
+    body.appendChild(h(`<div class="rc-actions"><button class="pill" data-a="retake">📷 ${esc(t('retake'))}</button><button class="pill" data-a="draw">✏️ ${esc(t('drawInstead'))}</button></div>`));
     body.querySelector('[data-a=retake]').onclick = openCamera;
     body.querySelector('[data-a=draw]').onclick = openDrawPad;
   } else {
-    body.appendChild(h(`<div class="card center">
-      <svg viewBox="0 0 200 150" style="width:100%;max-width:280px;margin:0 auto 6px;display:block">
-        <defs><linearGradient id="pg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ffc2d1"/><stop offset="1" stop-color="#ff8fab"/></linearGradient></defs>
-        <rect x="4" y="4" width="192" height="142" rx="16" fill="none" stroke="#ffe1a1" stroke-opacity=".35" stroke-dasharray="6 6"/>
-        <g transform="translate(100 78)">
-          ${Array.from({ length: 12 }, (_, i) => `<path transform="rotate(${i * 30})" d="M0 -62 C14 -48 16 -38 10 -30 L-10 -30 C-16 -38 -14 -48 0 -62z" fill="url(#pg)" opacity=".85"/>`).join('')}
-          <circle r="34" fill="#2E7D32"/>
-          <rect x="-26" y="-18" width="52" height="36" rx="3" fill="#fffdf7"/>
-          <rect x="-30" y="-22" width="6" height="6" fill="#111"/><rect x="24" y="-22" width="6" height="6" fill="#111"/>
-          <rect x="-30" y="16" width="6" height="6" fill="#111"/><rect x="24" y="16" width="6" height="6" fill="#111"/>
-          <path d="M-14 -4h28M-18 6h36" stroke="#333" stroke-width="2" stroke-linecap="round"/>
-        </g>
-      </svg>
-      <ul class="tips">${t('captureTips').map((x, i) => `<li><span>${['💡', '📱', '⬛'][i]}</span>${esc(x)}</li>`).join('')}</ul>
-      <div class="stack">
-        <button class="btn btn-primary btn-block" data-a="cam">📷 ${esc(t('openCamera'))}</button>
-        <label class="btn btn-block" style="cursor:pointer">🖼️ ${esc(t('upload'))}<input type="file" accept="image/*" hidden data-a="file"></label>
-        <button class="btn btn-ghost btn-block" data-a="draw">✏️ ${esc(t('drawInstead'))}</button>
-      </div>
+    body.appendChild(h(`<div class="cap-start">
+      <div class="cap-art">${isTanabata() ? CAPTURE_ART_TANZAKU : CAPTURE_ART_KRATHONG}</div>
+      <ul class="tip-row">${t('tips').map((x, i) => `<li><span>${['💡', '📱', '⬛'][i]}</span>${esc(x)}</li>`).join('')}</ul>
+      <button class="btn btn-primary btn-block btn-lg" data-a="cam">📷 ${esc(t('openCamera'))}</button>
+      <label class="btn btn-block">🖼️ ${esc(t('upload'))}<input type="file" accept="image/*" hidden data-a="file"></label>
+      <button class="text-link" data-a="draw">${esc(t('drawInstead'))}</button>
     </div>`));
     body.querySelector('[data-a=cam]').onclick = openCamera;
     body.querySelector('[data-a=draw]').onclick = openDrawPad;
+    const file = body.querySelector('[data-a=file]');
+    file.onchange = () => { if (file.files?.[0]) loadFile(file.files[0]); };
   }
-  const file = body.querySelector('[data-a=file]') || h('<input type="file" accept="image/*" hidden>');
-  file.onchange = () => { if (file.files?.[0]) loadFile(file.files[0]); };
-  actionBar([
-    { html: `‹ ${esc(t('back'))}`, cls: 'btn-ghost', onClick: () => go('write') },
-    { html: `🪷 ${esc(t('nextToFloat'))} ›`, cls: 'btn-primary', onClick: () => go('float'), disabled: !c },
-  ]);
+  actionBar([backBtn('write'), nextBtn('send', !c, `${ICON[state.activity]} ${ta('sendTitle')}`)]);
 }
 
 function captureStrings() {
@@ -586,28 +540,30 @@ function captureStrings() {
   };
 }
 function onCaptured(result) {
-  state.capture = { dataURL: result.dataURL, colors: result.colors, found: result.found, inkRatio: result.inkRatio, source: result.source };
-  save();
-  vibrate(20);
-  render();
+  state.captures[state.activity] = { dataURL: result.dataURL, colors: result.colors, found: result.found, inkRatio: result.inkRatio, source: result.source };
+  save(); vibrate(20); render();
 }
-const captureOpts = () => ({ strings: captureStrings(), defaults: DEFAULT_COLORS, onResult: onCaptured, toast, vibrate });
+const captureOpts = () => ({
+  strings: captureStrings(), defaults: DEFAULT_COLORS, onResult: onCaptured, toast, vibrate,
+  spec: isTanabata() ? IP.SPECS.tanzaku : IP.SPECS.krathong,
+});
 const openCamera = () => startCamera(captureOpts());
 const loadFile = (f) => captureFromFile(f, captureOpts());
 
 /* ---------- Draw on screen (no paper) ---------- */
 function openDrawPad() {
-  const colors = { ...(state.capture?.colors || DEFAULT_COLORS) };
+  const tall = isTanabata();
+  const colors = { ...(capture()?.colors || DEFAULT_COLORS) };
   const pens = ['#1b1b1b', '#c0392b', '#1e5bb8', '#1f7a43'];
   let pen = pens[0];
   const x = wishTexts(currentWish());
-  const content = h(`<div>
-    <div class="h2 center">${esc(t('drawTitle'))}</div>
-    <p class="muted small center" style="margin:0 0 10px"><span class="${targetFontClass()}">${esc(state.nameOut)} · ${esc(x.target)}</span></p>
-    <div class="draw-pad"><div class="ghost" style="font-family:var(--font-trace-${targetScript()})">${esc(state.nameOut)}<br>${esc(x.target)}</div><canvas width="720" height="500"></canvas></div>
+  const [W, H] = tall ? [400, 1620] : [720, 500];
+  const content = h(`<div class="sheet-body">
+    <h2 class="sheet-title center">${esc(t('drawTitle'))}</h2>
+    <div class="draw-pad ${tall ? 'tall' : ''}"><div class="ghost ${tall && x.script === 'ja' ? 'vert' : ''}" style="font-family:var(--font-trace-${x.script})">${esc(x.target)}<br>${esc(state.nameOut)}</div><canvas width="${W}" height="${H}"></canvas></div>
     <div class="pen-colors">${pens.map((p, i) => `<button type="button" style="background:${p}" class="${i ? '' : 'on'}" data-pen="${p}" aria-label="pen ${i + 1}"></button>`).join('')}</div>
-    <div class="palette" id="drawPal"></div>
-    <div class="row" style="margin-top:14px"><button class="btn" data-a="clear">${esc(t('clear'))}</button><button class="btn btn-primary" style="flex:1" data-a="done">✓ ${esc(t('done'))}</button></div>
+    ${tall ? '' : '<div class="palette" id="drawPal"></div>'}
+    <div class="row"><button class="btn" data-a="clear">${esc(t('clear'))}</button><button class="btn btn-primary" style="flex:1" data-a="done">✓ ${esc(t('done'))}</button></div>
   </div>`);
   const close = openSheet(content);
   const cv = content.querySelector('canvas');
@@ -615,11 +571,11 @@ function openDrawPad() {
   g.lineCap = 'round'; g.lineJoin = 'round';
   let drawing = false; let last = null; let strokes = 0;
   const pos = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * (cv.width / r.width), (e.clientY - r.top) * (cv.height / r.height)]; };
-  cv.addEventListener('pointerdown', (e) => { drawing = true; last = pos(e); cv.setPointerCapture(e.pointerId); content.querySelector('.ghost').style.opacity = '0.4'; });
+  cv.addEventListener('pointerdown', (e) => { drawing = true; last = pos(e); cv.setPointerCapture(e.pointerId); content.querySelector('.ghost').style.opacity = '0.35'; });
   cv.addEventListener('pointermove', (e) => {
     if (!drawing) return;
     const p = pos(e);
-    g.strokeStyle = pen; g.lineWidth = 9;
+    g.strokeStyle = pen; g.lineWidth = tall ? 11 : 9;
     g.beginPath(); g.moveTo(...last); g.lineTo(...p); g.stroke();
     last = p; strokes++;
   });
@@ -627,43 +583,48 @@ function openDrawPad() {
   cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
   content.querySelectorAll('[data-pen]').forEach((b) => { b.onclick = () => { pen = b.dataset.pen; content.querySelectorAll('[data-pen]').forEach((o) => o.classList.toggle('on', o === b)); }; });
   const pal = content.querySelector('#drawPal');
-  for (const zone of ['base', 'innerPetal', 'outerPetal', 'flower']) {
-    const sw = h(`<label class="swatch"><span class="sw" style="background:${colors[zone]}"><input type="color" value="${colors[zone].toLowerCase()}"></span>${esc(t('zone')[zone])}</label>`);
-    const inp = sw.querySelector('input');
-    inp.oninput = () => { colors[zone] = inp.value.toUpperCase(); sw.querySelector('.sw').style.background = inp.value; };
-    pal.appendChild(sw);
+  if (pal) {
+    for (const zone of ['base', 'innerPetal', 'outerPetal', 'flower']) {
+      const sw = h(`<label class="swatch"><span class="sw" style="background:${colors[zone]}"><input type="color" value="${colors[zone].toLowerCase()}"></span>${esc(t('zone')[zone])}</label>`);
+      const inp = sw.querySelector('input');
+      inp.oninput = () => { colors[zone] = inp.value.toUpperCase(); sw.querySelector('.sw').style.background = inp.value; };
+      pal.appendChild(sw);
+    }
   }
   content.querySelector('[data-a=clear]').onclick = () => { g.clearRect(0, 0, cv.width, cv.height); strokes = 0; content.querySelector('.ghost').style.opacity = '1'; };
   content.querySelector('[data-a=done]').onclick = () => {
     if (strokes < 5) { toast(t('drawTitle')); return; }
-    state.capture = { dataURL: IP.canvasToDataURL(cv), colors, found: null, inkRatio: undefined, source: 'draw' };
+    state.captures[state.activity] = { dataURL: IP.canvasToDataURL(cv, tall ? 960 : 760), colors, found: null, inkRatio: undefined, source: 'draw' };
     save(); close(); render();
   };
 }
 
 /* ------------------------------------------------------------------ */
-/* Step 5 — Float                                                      */
+/* Send                                                                */
 /* ------------------------------------------------------------------ */
-let floatUI = null;
-let floatView = null;
+let sendUI = null;
+let sendView = null;
+let floatScene = null;
 
-function destroyFloat() {
+function destroySend() {
   floatScene?.destroy?.();
   floatScene = null;
-  floatView?.remove();
-  floatView = null;
-  floatUI = null;
+  sendView?.remove();
+  sendView = null;
+  sendUI = null;
 }
 
 function buildPayload() {
+  const c = capture();
   return {
     id: state.id,
-    isHost: false,
+    activity: state.activity,
     languageMode: state.mode,
     selectedWishId: state.wishId === 'custom' ? null : state.wishId,
     customWish: state.wishId === 'custom' ? state.customWish : '',
-    colors: state.capture.colors,
-    handwritingImageBase64: state.capture.dataURL,
+    colors: c.colors,
+    tanzakuColor: state.tanzakuColor,
+    handwritingImageBase64: c.dataURL,
     displayName: state.nameOut,
     displayNameOriginal: state.nameInput,
   };
@@ -676,55 +637,62 @@ async function loadImage(src) {
   return img;
 }
 
-function renderFloat(root) {
+const SWIPE_HINT = (label) => `<div class="swipe-hint"><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 15l6-6 6 6"/></svg><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 15l6-6 6 6"/></svg>${esc(label)}</div>`;
+
+function renderSend(root) {
   actionBar(null);
   root.innerHTML = '';
-  if (!state.capture) { go('capture'); return; }
-  floatView = h(`<div class="float-view">
-    <canvas class="three"></canvas>
+  const c = capture();
+  if (!c) { go('capture'); return; }
+  const tanabata = isTanabata();
+  sendView = h(`<div class="float-view ${tanabata ? 'tanabata-view' : ''}">
+    ${tanabata ? `<div class="tv-sky"><div class="tv-milky"></div><div class="tv-bamboo l">${ART_TANABATA}</div><div class="tv-stage">${tanzakuHTML({ color: state.tanzakuColor, image: c.dataURL, big: true })}</div></div>` : '<canvas class="three"></canvas>'}
     <div class="float-ui">
       <div class="float-top">
-        <button class="btn btn-sm" data-a="back">‹ ${esc(t('editAgain'))}</button>
-        <span class="chip"><span class="dot" data-conn></span>${esc(t('floatTitle'))}</span>
+        <button class="btn btn-sm btn-glass" data-a="back">‹ ${esc(t('edit'))}</button>
+        <span class="chip btn-glass"><span class="dot" data-conn></span>${ICON[state.activity]} ${esc(ta('sendTitle'))}</span>
       </div>
-      <div class="float-bottom" id="floatBottom"></div>
+      <div class="float-bottom" id="sendBottom"></div>
     </div>
   </div>`);
-  document.body.appendChild(floatView);
-  floatView.querySelector('[data-a=back]').onclick = () => go('capture');
+  document.body.appendChild(sendView);
+  sendView.querySelector('[data-a=back]').onclick = () => go('capture');
   setConn(socket?.connected);
-  const bottom = floatView.querySelector('#floatBottom');
+  const bottom = sendView.querySelector('#sendBottom');
   let phase = 'ready'; // ready | flying | sent
   let sending = false;
 
-  floatUI = {
+  sendUI = {
     refresh() {
-      if (!floatView) return;
+      if (!sendView) return;
       if (phase === 'sent') {
-        bottom.innerHTML = `<div class="card sent-card">
-          <div style="font-size:40px">🪷</div>
-          <div class="h1">${esc(t('sent'))}</div>
-          <p class="muted" style="margin:0 0 14px">${esc(t('sentSub'))}</p>
-          <div class="row"><button class="btn" data-a="edit">${esc(t('editAgain'))}</button><button class="btn btn-primary" style="flex:1" data-a="again">${esc(t('again'))}</button></div>
+        const other = tanabata ? 'krathong' : 'tanabata';
+        bottom.innerHTML = `<div class="sent-card">
+          <div class="sent-ico">${ICON[state.activity]}</div>
+          <div class="sent-title">${esc(ta('sent'))}</div>
+          <p class="sent-sub">${esc(t('sentSub'))}</p>
+          <button class="btn btn-primary btn-block" data-a="other">${ICON[other]} ${esc(t('tryOther'))} · ${esc(t('act_' + other))}</button>
+          <div class="row"><button class="btn btn-sm btn-ghost" style="flex:1" data-a="again">${esc(t('again'))}</button><button class="btn btn-sm btn-ghost" style="flex:1" data-a="edit">${esc(t('edit'))}</button></div>
         </div>`;
-        bottom.querySelector('[data-a=again]').onclick = () => { phase = 'ready'; resetKrathong(); floatUI.refresh(); };
+        bottom.querySelector('[data-a=other]').onclick = () => { state.activity = other; save(); go(state.captures[other] ? 'send' : 'write'); };
+        bottom.querySelector('[data-a=again]').onclick = () => { phase = 'ready'; resetItem(); sendUI.refresh(); };
         bottom.querySelector('[data-a=edit]').onclick = () => go('capture');
         return;
       }
-      if (phase === 'flying') { bottom.innerHTML = `<div class="lock-pill"><span class="spinner"></span>${esc(t('floating'))}</div>`; return; }
+      if (phase === 'flying') { bottom.innerHTML = `<div class="lock-pill"><span class="spinner"></span>${esc(t('sending'))}</div>`; return; }
       floatScene?.setLocked(!ceremony.opened);
       if (!ceremony.opened) {
-        bottom.innerHTML = `<div class="lock-pill"><span class="spinner"></span><span><b>${esc(t('waiting'))}</b><br><span class="muted small">${esc(t('waitingSub'))}</span></span></div>`;
-      } else if (!floatScene) {
-        bottom.innerHTML = `<button class="btn btn-primary btn-block" style="pointer-events:auto" data-a="tap">🪷 ${esc(t('tapToSend'))}</button>`;
+        bottom.innerHTML = `<div class="lock-pill"><span class="lock-ico">🔒</span><span><b>${esc(t('waiting'))}</b><br><small>${esc(t('waitingSub'))}</small></span></div>`;
+      } else if (!tanabata && !floatScene) {
+        bottom.innerHTML = `<button class="btn btn-primary btn-block" style="pointer-events:auto" data-a="tap">${ICON.krathong} ${esc(t('tapToSend'))}</button>`;
         bottom.querySelector('[data-a=tap]').onclick = () => send();
       } else {
-        bottom.innerHTML = `<div class="swipe-hint"><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 15l6-6 6 6"/></svg><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 15l6-6 6 6"/></svg>${esc(t('swipe'))}</div>`;
+        bottom.innerHTML = SWIPE_HINT(ta('swipe'));
       }
     },
     celebrate() {
-      if (!floatView) return;
-      floatView.appendChild(h('<div class="unlock-burst"></div>'));
+      if (!sendView) return;
+      sendView.appendChild(h('<div class="unlock-burst"></div>'));
       floatScene?.celebrate();
       toast('✨ ' + t('unlocked'), 'gold');
       vibrate([30, 60, 30]);
@@ -732,74 +700,116 @@ function renderFloat(root) {
     },
   };
 
-  async function send() {
+  function send() {
     if (sending) return;
-    if (!socket?.connected) { toast(t('offline'), 'err'); resetKrathong(); return; }
+    if (!socket?.connected) { toast(t('offline'), 'err'); phase = 'ready'; resetItem(); sendUI?.refresh(); return; }
     sending = true;
     socket.timeout(10000).emit('spawn_krathong', buildPayload(), (err, res) => {
       sending = false;
       if (err || !res?.ok) {
         const code = res?.error;
-        if (code === 'ceremony_locked') { ceremony.opened = false; }
-        toast(`${t('sendError')}${code === 'too_fast' ? (state.lang === 'ja' ? '（少し待ってからもう一度）' : ' (รอสักครู่แล้วลองใหม่)') : ''}`, 'err');
-        phase = 'ready'; resetKrathong(); floatUI?.refresh();
+        if (code === 'ceremony_locked') ceremony.opened = false;
+        toast(`${t('sendError')}${code === 'too_fast' ? ` · ${t('tooFast')}` : ''}`, 'err');
+        phase = 'ready'; resetItem(); sendUI?.refresh();
         return;
       }
       state.sent++; save();
       phase = 'sent';
       audio.chime();
-      floatUI?.refresh();
+      sendUI?.refresh();
     });
   }
 
-  async function resetKrathong() {
+  async function resetItem() {
+    if (tanabata) {
+      const strip = sendView?.querySelector('.tv-stage .tanzaku');
+      if (strip) { strip.style.transition = 'none'; strip.style.transform = ''; strip.style.opacity = ''; }
+      return;
+    }
     if (!floatScene) return;
-    const img = await loadImage(state.capture.dataURL);
-    floatScene.setKrathong({ colors: state.capture.colors, signImage: img });
+    const img = await loadImage(capture().dataURL);
+    floatScene.setKrathong({ colors: capture().colors, signImage: img });
     floatScene.setLocked(!ceremony.opened);
   }
 
-  floatUI.refresh();
-  (async () => {
-    try {
-      const { hasWebGL } = await import('./scene-env.js');
-      if (!hasWebGL()) throw new Error('no webgl');
-      const { createFloatScene } = await import('./float-scene.js');
-      const img = await loadImage(state.capture.dataURL);
-      if (!floatView) return;
-      floatScene = await createFloatScene(floatView.querySelector('canvas.three'), {
-        colors: state.capture.colors,
-        signImage: img,
-        locked: !ceremony.opened,
-        opened: ceremony.opened,
-        gestureElement: floatView,
-        labelContainer: floatView,
-        signName: state.nameOut,
-        onLockedAttempt: () => { toast('🔒 ' + t('waiting')); vibrate(40); },
-        onLaunch: () => { phase = 'flying'; audio.swoosh(); vibrate(25); floatUI?.refresh(); },
-        onExit: () => send(),
-      });
-      if (!floatView) { floatScene.destroy(); floatScene = null; return; }
-      floatUI.refresh();
-    } catch (e) {
-      console.warn(e);
-      floatScene = null;
-      if (floatView) {
-        floatView.querySelector('canvas.three').remove();
-        floatView.querySelector('.float-ui').insertAdjacentHTML('afterbegin', `<div class="center" style="margin-top:30vh;padding:0 24px"><img src="${state.capture.dataURL}" alt="" style="max-width:280px;margin:0 auto;background:#fffdf7;border-radius:14px"><p class="muted">${esc(t('noWebgl'))}</p></div>`);
-        floatUI.refresh();
+  sendUI.refresh();
+  if (tanabata) setupTanzakuSwipe(sendView, {
+    locked: () => !ceremony.opened || phase !== 'ready',
+    onLocked: () => { if (!ceremony.opened) { toast('🔒 ' + t('waiting')); vibrate(40); } },
+    onLaunch: () => { phase = 'flying'; audio.swoosh(); vibrate(25); sendUI?.refresh(); },
+    onExit: () => send(),
+  });
+  else startKrathongScene(sendView, send, (p) => { phase = p; });
+
+  function startKrathongScene(view, onExit, setPhase) {
+    (async () => {
+      try {
+        const { hasWebGL } = await import('./scene-env.js');
+        if (!hasWebGL()) throw new Error('no webgl');
+        const { createFloatScene } = await import('./float-scene.js');
+        const img = await loadImage(c.dataURL);
+        if (!sendView) return;
+        floatScene = await createFloatScene(view.querySelector('canvas.three'), {
+          colors: c.colors, signImage: img, locked: !ceremony.opened, opened: ceremony.opened,
+          gestureElement: view, labelContainer: view, signName: state.nameOut,
+          onLockedAttempt: () => { toast('🔒 ' + t('waiting')); vibrate(40); },
+          onLaunch: () => { setPhase('flying'); audio.swoosh(); vibrate(25); sendUI?.refresh(); },
+          onExit,
+        });
+        if (!sendView) { floatScene.destroy(); floatScene = null; return; }
+        sendUI.refresh();
+      } catch (e) {
+        console.warn(e);
+        floatScene = null;
+        if (sendView) {
+          view.querySelector('canvas.three')?.remove();
+          view.querySelector('.float-ui').insertAdjacentHTML('afterbegin', `<div class="center" style="margin-top:28vh;padding:0 24px"><img src="${c.dataURL}" alt="" style="max-width:280px;margin:0 auto;background:#fffdf7;border-radius:14px"><p class="muted">${esc(t('noWebgl'))}</p></div>`);
+          sendUI.refresh();
+        }
       }
+    })();
+  }
+}
+
+/** Swipe the tanzaku up: it flutters away into the sky, then we send it. */
+function setupTanzakuSwipe(view, { locked, onLocked, onLaunch, onExit }) {
+  const strip = () => view.querySelector('.tv-stage .tanzaku');
+  let startY = null; let pid = null; let dy = 0;
+  view.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    startY = e.clientY; pid = e.pointerId; dy = 0;
+    const s = strip(); if (s) s.style.transition = 'none';
+  });
+  view.addEventListener('pointermove', (e) => {
+    if (startY === null || e.pointerId !== pid) return;
+    dy = Math.min(0, e.clientY - startY);
+    const s = strip();
+    if (s) s.style.transform = `translateY(${(locked() ? dy * 0.2 : dy * 0.6).toFixed(1)}px) rotate(${(dy * 0.02).toFixed(2)}deg)`;
+  });
+  const up = (e) => {
+    if (startY === null || e.pointerId !== pid) return;
+    startY = null;
+    const s = strip();
+    if (!s) return;
+    if (dy < -70) {
+      if (locked()) { onLocked(); s.style.transition = 'transform .5s cubic-bezier(.3,1.6,.5,1)'; s.style.transform = ''; return; }
+      onLaunch();
+      s.style.transition = 'transform 1.6s cubic-bezier(.4,0,.6,1), opacity 1.6s';
+      s.style.transform = 'translateY(-115vh) rotate(-14deg) scale(.55)';
+      s.style.opacity = '0.2';
+      setTimeout(onExit, 1500);
+    } else {
+      s.style.transition = 'transform .4s ease';
+      s.style.transform = '';
     }
-  })();
+  };
+  view.addEventListener('pointerup', up);
+  view.addEventListener('pointercancel', up);
 }
 
 function onCeremonyOpened() {
-  if (state.step === 'float' && floatUI) {
-    floatUI.celebrate();
-    floatUI.refresh();
-  } else {
-    toast('✨ ' + t('unlocked'), 'gold');
-  }
+  if (state.step === 'send' && sendUI) { sendUI.celebrate(); sendUI.refresh(); }
+  else toast('✨ ' + t('unlocked'), 'gold');
 }
 
 /* ------------------------------------------------------------------ */

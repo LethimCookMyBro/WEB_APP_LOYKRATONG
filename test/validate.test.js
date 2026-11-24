@@ -31,6 +31,15 @@ test('custom wishes are cleaned and only kept when no library wish is chosen', (
   assert.equal(sanitizeKrathong({ selectedWishId: 'success', customWish: 'abc' }).value.customWish, '');
 });
 
+test('activity and tanzaku colour are validated', () => {
+  const r = sanitizeKrathong({ activity: 'tanabata', tanzakuColor: '#d9475a' });
+  assert.equal(r.value.activity, 'tanabata');
+  assert.equal(r.value.tanzakuColor, '#D9475A');
+  const bad = sanitizeKrathong({ activity: '<x>', tanzakuColor: 'red' });
+  assert.equal(bad.value.activity, 'krathong');
+  assert.equal(bad.value.tanzakuColor, '#3E9B5F');
+});
+
 test('cleanText strips markup and limits length', () => {
   assert.equal(cleanText('<b>สมชาย</b>'), 'bสมชาย/b');
   assert.equal(cleanText('a'.repeat(100)).length, 40);

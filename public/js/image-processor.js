@@ -12,18 +12,25 @@
 //   walls (inner petals) fold up and flare out -> seen at ~45-57 mm from centre
 //   petal tips (outer petals) fold outwards     -> seen at ~60-78 mm from centre
 
-export const TEMPLATE = {
-  markerRect: { w: 80, h: 58 },
-  markerSize: 6,
-  box: { w: 72, h: 50 },
+/**
+ * Paper layouts the camera understands (millimetres):
+ *  krathong — horizontal wish box 72x50 on the krathong floor, markers 80x58 apart
+ *  tanzaku  — tall Tanabata wish strip, writing box 40x162, markers 48x170 apart
+ */
+export const SPECS = {
+  krathong: { id: 'krathong', markerRect: { w: 80, h: 58 }, markerSize: 6, box: { w: 72, h: 50 }, insetMm: 4.8, pxPerMm: 10, palette: true },
+  tanzaku: { id: 'tanzaku', markerRect: { w: 48, h: 170 }, markerSize: 6, box: { w: 40, h: 162 }, insetMm: 4.6, pxPerMm: 6, palette: false },
 };
+export const TEMPLATE = SPECS.krathong;
 export const MARKER_ASPECT = TEMPLATE.markerRect.w / TEMPLATE.markerRect.h;
+export const aspectOf = (spec = TEMPLATE) => spec.markerRect.w / spec.markerRect.h;
 
-const MR = TEMPLATE.markerRect;
+const MR = TEMPLATE.markerRect; // krathong (colour sampling only)
 // marker centres in template mm, order TL, TR, BR, BL
-const MARKER_MM = [
-  [-MR.w / 2, -MR.h / 2], [MR.w / 2, -MR.h / 2], [MR.w / 2, MR.h / 2], [-MR.w / 2, MR.h / 2],
-];
+const markerMM = (spec = TEMPLATE) => {
+  const { w, h } = spec.markerRect;
+  return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
+};
 
 /* ------------------------------------------------------------------ */
 /* Homography helpers                                                  */
@@ -67,8 +74,8 @@ export function applyH(H, x, y) {
 }
 
 /** Map template millimetres -> image pixels given the 4 detected marker centres. */
-export function templateToImage(quad) {
-  return homography(MARKER_MM, quad);
+export function templateToImage(quad, spec = TEMPLATE) {
+  return homography(markerMM(spec), quad);
 }
 
 /* ------------------------------------------------------------------ */
@@ -122,13 +129,14 @@ function otsu(hist, total) {
  * @param {number[][]} expected       4 approximate marker centres [TL, TR, BR, BL] in px
  * @returns {{points:number[][], found:boolean[], all:boolean}}
  */
-export function detectMarkers(canvas, expected) {
+export function detectMarkers(canvas, expected, spec = TEMPLATE) {
   const W = canvas.width; const H = canvas.height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const side = (Math.hypot(expected[1][0] - expected[0][0], expected[1][1] - expected[0][1]) +
     Math.hypot(expected[2][0] - expected[3][0], expected[2][1] - expected[3][1])) / 2;
-  const expMarker = side * (TEMPLATE.markerSize / MR.w); // expected marker side length (px)
-  const radius = Math.max(24, side * 0.2);
+  const pxPerMm = side / spec.markerRect.w;
+  const expMarker = pxPerMm * spec.markerSize; // expected marker side length (px)
+  const radius = Math.max(24, pxPerMm * 16);
   const points = []; const found = [];
   expected.forEach(([ex, ey]) => {
     const x0 = Math.max(0, Math.floor(ex - radius)); const y0 = Math.max(0, Math.floor(ey - radius));
@@ -188,7 +196,7 @@ export function detectMarkers(canvas, expected) {
  * where we do not know where the sheet is). Finds square dark blobs, then picks
  * the 4 that best form a convex quad with the template's aspect ratio.
  */
-export function findMarkersGlobal(canvas) {
+export function findMarkersGlobal(canvas, spec = TEMPLATE) {
   const s = Math.min(1, 900 / Math.max(canvas.width, canvas.height));
   const w = Math.round(canvas.width * s); const h = Math.round(canvas.height * s);
   const small = makeCanvas(w, h);
@@ -235,10 +243,10 @@ export function findMarkersGlobal(canvas) {
     const top = L(0, 1); const bot = L(3, 2); const left = L(0, 3); const right = L(1, 2);
     if (Math.min(top, bot) / Math.max(top, bot) < 0.7 || Math.min(left, right) / Math.max(left, right) < 0.7) continue;
     const ratio = (top + bot) / (left + right);
-    const ratioErr = Math.abs(Math.log(ratio / MARKER_ASPECT));
+    const ratioErr = Math.abs(Math.log(ratio / aspectOf(spec)));
     if (ratioErr > 0.35) continue;
     // marker size should match the quad size (6 mm of 80 mm)
-    const expSide = ((top + bot) / 2) * (TEMPLATE.markerSize / MR.w);
+    const expSide = ((top + bot) / 2) * (spec.markerSize / spec.markerRect.w);
     const sizeErr = Math.abs(Math.log(Math.sqrt(areas.reduce((x, y) => x + y) / 4) / expSide));
     if (sizeErr > 0.6) continue;
     const score = ratioErr + sizeErr * 0.5 - Math.log(top + left) * 0.05;
@@ -260,9 +268,10 @@ export function completeQuad(det) {
 }
 
 /** Default guess: centred marker rectangle covering `frac` of the image width. */
-export function defaultQuad(w, h, frac = 0.5) {
-  let qw = w * frac; let qh = qw / MARKER_ASPECT;
-  if (qh > h * 0.8) { qh = h * 0.8; qw = qh * MARKER_ASPECT; }
+export function defaultQuad(w, h, frac = 0.5, spec = TEMPLATE) {
+  const asp = aspectOf(spec);
+  let qw = w * frac; let qh = qw / asp;
+  if (qh > h * 0.8) { qh = h * 0.8; qw = qh * asp; }
   const cx = w / 2; const cy = h / 2;
   return [[cx - qw / 2, cy - qh / 2], [cx + qw / 2, cy - qh / 2], [cx + qw / 2, cy + qh / 2], [cx - qw / 2, cy + qh / 2]];
 }
@@ -310,8 +319,8 @@ export function warpQuad(src, quad, outW, outH) {
  * transparent PNG (Bradley–Roth adaptive threshold using an integral image).
  * @param {HTMLCanvasElement} warped  marker rectangle warped to 10 px / mm (800 x 580)
  */
-export function extractHandwriting(warped, { insetMm = 4.8, t = 0.16 } = {}) {
-  const pxPerMm = warped.width / MR.w;
+export function extractHandwriting(warped, { insetMm = 4.8, t = 0.16, spec = TEMPLATE } = {}) {
+  const pxPerMm = warped.width / spec.markerRect.w;
   const inset = Math.round(insetMm * pxPerMm);
   const w = warped.width - inset * 2; const h = warped.height - inset * 2;
   const ctx = warped.getContext('2d', { willReadFrequently: true });
@@ -373,8 +382,8 @@ export function extractHandwriting(warped, { insetMm = 4.8, t = 0.16 } = {}) {
 }
 
 /** Downscale + encode to keep the socket payload small (~30–150 KB). */
-export function canvasToDataURL(canvas, maxW = 640) {
-  const s = Math.min(1, maxW / canvas.width);
+export function canvasToDataURL(canvas, maxSide = 760) {
+  const s = Math.min(1, maxSide / Math.max(canvas.width, canvas.height));
   let c = canvas;
   if (s < 1) {
     c = makeCanvas(canvas.width * s, canvas.height * s);
@@ -461,9 +470,10 @@ export function samplePalette(canvas, quad, defaults) {
 }
 
 /** Full pipeline helper: photo + quad -> { handwritingCanvas, dataURL, colors, found, inkRatio } */
-export function processCapture(photoCanvas, quad, defaults) {
-  const warped = warpQuad(photoCanvas, quad, MR.w * 10, MR.h * 10);
-  const { canvas, inkRatio } = extractHandwriting(warped);
-  const { colors, found } = samplePalette(photoCanvas, quad, defaults);
-  return { handwritingCanvas: canvas, dataURL: canvasToDataURL(canvas), colors, found, inkRatio, warped };
+export function processCapture(photoCanvas, quad, defaults, spec = TEMPLATE) {
+  const k = spec.pxPerMm;
+  const warped = warpQuad(photoCanvas, quad, spec.markerRect.w * k, spec.markerRect.h * k);
+  const { canvas, inkRatio } = extractHandwriting(warped, { insetMm: spec.insetMm, spec });
+  const { colors, found } = spec.palette ? samplePalette(photoCanvas, quad, defaults) : { colors: defaults, found: null };
+  return { handwritingCanvas: canvas, dataURL: canvasToDataURL(canvas, spec.palette ? 760 : 960), colors, found, inkRatio, warped };
 }

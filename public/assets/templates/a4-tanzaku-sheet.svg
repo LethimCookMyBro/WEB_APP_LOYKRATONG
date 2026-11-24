@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 297" width="210mm" height="297mm" font-family="'Noto Sans Thai', 'Noto Sans JP', sans-serif">
+  <style>
+    .cut { fill: none; stroke: #3b3226; stroke-width: 0.45; }
+    .boxlbl { font-size: 2.3px; fill: #e4e0d8; }
+    .h { font-size: 6.2px; fill: #3b3226; font-weight: 600; }
+    .hs { font-size: 3.4px; fill: #7b705f; }
+    .num { font-size: 3.4px; fill: #0b2540; font-weight: 700; text-anchor: middle; }
+    .st { font-size: 3.3px; fill: #3b3226; }
+    .sj { font-size: 2.8px; fill: #7b705f; }
+  </style>
+  <rect width="210" height="297" fill="#fff"/>
+  <text x="10" y="12" class="h">ทันซากุ ทานาบาตะ · 七夕の短冊</text>
+  <text x="10" y="17.5" class="hs">เขียนคำอธิษฐานแล้วฝากไว้ที่กิ่งไผ่ · ねがいごとを書いて笹にかざろう · พิมพ์บนกระดาษสีก็ได้ · 色紙に印刷してもOK</text>
+  <rect x="10" y="23" width="60" height="190" rx="1" class="cut"/>
+<circle cx="40" cy="27" r="2.4" class="cut"/>
+<rect x="20" y="37" width="40" height="162" rx="1.5" fill="#fff" stroke="#cdc4b5" stroke-width="0.3" stroke-dasharray="1.2 1"/>
+<path d="M20 168 H60" stroke="#ece7de" stroke-width="0.3" stroke-dasharray="1 1"/>
+<text x="22" y="41" class="boxlbl">ねがいごと · คำอธิษฐาน</text>
+<text x="22" y="172" class="boxlbl">なまえ · ชื่อ</text>
+<rect x="13" y="30" width="6" height="6" fill="#000"/>
+<rect x="61" y="30" width="6" height="6" fill="#000"/>
+<rect x="61" y="200" width="6" height="6" fill="#000"/>
+<rect x="13" y="200" width="6" height="6" fill="#000"/>
+<rect x="75" y="23" width="60" height="190" rx="1" class="cut"/>
+<circle cx="105" cy="27" r="2.4" class="cut"/>
+<rect x="85" y="37" width="40" height="162" rx="1.5" fill="#fff" stroke="#cdc4b5" stroke-width="0.3" stroke-dasharray="1.2 1"/>
+<path d="M85 168 H125" stroke="#ece7de" stroke-width="0.3" stroke-dasharray="1 1"/>
+<text x="87" y="41" class="boxlbl">ねがいごと · คำอธิษฐาน</text>
+<text x="87" y="172" class="boxlbl">なまえ · ชื่อ</text>
+<rect x="78" y="30" width="6" height="6" fill="#000"/>
+<rect x="126" y="30" width="6" height="6" fill="#000"/>
+<rect x="126" y="200" width="6" height="6" fill="#000"/>
+<rect x="78" y="200" width="6" height="6" fill="#000"/>
+<rect x="140" y="23" width="60" height="190" rx="1" class="cut"/>
+<circle cx="170" cy="27" r="2.4" class="cut"/>
+<rect x="150" y="37" width="40" height="162" rx="1.5" fill="#fff" stroke="#cdc4b5" stroke-width="0.3" stroke-dasharray="1.2 1"/>
+<path d="M150 168 H190" stroke="#ece7de" stroke-width="0.3" stroke-dasharray="1 1"/>
+<text x="152" y="41" class="boxlbl">ねがいごと · คำอธิษฐาน</text>
+<text x="152" y="172" class="boxlbl">なまえ · ชื่อ</text>
+<rect x="143" y="30" width="6" height="6" fill="#000"/>
+<rect x="191" y="30" width="6" height="6" fill="#000"/>
+<rect x="191" y="200" width="6" height="6" fill="#000"/>
+<rect x="143" y="200" width="6" height="6" fill="#000"/>
+  <g>
+      <circle cx="16" cy="226.8" r="3.1" fill="#9ad1ff"/>
+      <text x="16" y="228" class="num">1</text>
+      <text x="22" y="227" class="st">ตัดตามเส้นทึบ (1 แผ่นได้ 3 ใบ)</text>
+      <text x="22" y="231.6" class="sj">実線にそって切る（1枚で3本）</text>
+    </g>
+<g>
+      <circle cx="16" cy="239.20000000000002" r="3.1" fill="#9ad1ff"/>
+      <text x="16" y="240.4" class="num">2</text>
+      <text x="22" y="239.4" class="st">เขียนคำอธิษฐานในกรอบ แนวตั้งจากบนลงล่าง และเขียนชื่อในช่องล่าง</text>
+      <text x="22" y="244" class="sj">枠の中に、上から下へ縦にねがいごとを書き、下の欄に名前を書く</text>
+    </g>
+<g>
+      <circle cx="16" cy="251.60000000000002" r="3.1" fill="#9ad1ff"/>
+      <text x="16" y="252.8" class="num">3</text>
+      <text x="22" y="251.8" class="st">ถ่ายภาพให้เห็นจุดดำครบ 4 มุม แล้วปัดส่งขึ้นจอใหญ่</text>
+      <text x="22" y="256.40000000000003" class="sj">4つの黒い点が入るように撮影して、大きな画面へ送る</text>
+    </g>
+<g>
+      <circle cx="16" cy="264" r="3.1" fill="#9ad1ff"/>
+      <text x="16" y="265.2" class="num">4</text>
+      <text x="22" y="264.2" class="st">เจาะรูด้านบน ร้อยเชือก แล้วนำไปแขวนกิ่งไผ่ได้จริง</text>
+      <text x="22" y="268.8" class="sj">上の穴にひもを通して、本物の笹にもかざれます</text>
+    </g>
+  <rect x="160" y="222" width="36" height="36" rx="2" fill="none" stroke="#cdc4b5" stroke-dasharray="2 1.5"/><text x="178" y="241" class="sj" text-anchor="middle">QR ที่จอใหญ่</text>
+  <text x="178" y="262" class="sj" text-anchor="middle">สแกนเพื่อเข้าร่วม · QRで参加</text>
+  
+  <text x="105" y="290" class="sj" text-anchor="middle">พิมพ์ขนาดจริง 100% บนกระดาษ A4 · A4・実寸（100%）で印刷してください</text>
+</svg>

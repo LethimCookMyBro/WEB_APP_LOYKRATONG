@@ -1,7 +1,7 @@
 // capture-ui.js — camera with overlay guide + live corner detection, photo upload,
 // and the 4-corner adjust screen. Shared by the participant and host pages.
 //
-// opts = { strings, defaults, onResult(result), toast(msg, type), vibrate(pattern) }
+// opts = { strings, defaults, onResult(result), toast(msg, type), vibrate(pattern), spec (IP.SPECS.*) }
 // result = { dataURL, colors, found, inkRatio, source }
 import * as IP from './image-processor.js';
 
@@ -17,9 +17,10 @@ export async function captureFromFile(file, opts) {
     await img.decode();
     const canvas = IP.toCanvas(img, 2000);
     URL.revokeObjectURL(url);
-    let det = IP.findMarkersGlobal(canvas);
-    if (det) det = IP.detectMarkers(canvas, det.points); // refine at full resolution
-    else det = IP.completeQuad(IP.detectMarkers(canvas, IP.defaultQuad(canvas.width, canvas.height, 0.45)));
+    const spec = opts.spec || IP.TEMPLATE;
+    let det = IP.findMarkersGlobal(canvas, spec);
+    if (det) det = IP.detectMarkers(canvas, det.points, spec); // refine at full resolution
+    else det = IP.completeQuad(IP.detectMarkers(canvas, IP.defaultQuad(canvas.width, canvas.height, 0.45, spec), spec));
     openAdjust(canvas, det, 'upload', opts);
   } catch (e) {
     console.error(e);
@@ -32,6 +33,9 @@ function stopStream() { stream?.getTracks().forEach((tr) => tr.stop()); stream =
 
 export async function startCamera(opts) {
   const S = opts.strings; const toast = opts.toast || noop; const vibrate = opts.vibrate || noop;
+  const spec = opts.spec || IP.TEMPLATE;
+  const asp = IP.aspectOf(spec);
+  const tall = asp < 1;
   if (!navigator.mediaDevices?.getUserMedia) { toast(S.cameraDenied, 'err'); return; }
   const view = h(`<div class="camera-view">
     <div class="camera-stage">
@@ -70,9 +74,10 @@ export async function startCamera(opts) {
   // guide rectangle (marker rectangle) in screen px
   const guide = () => {
     const w = stage.clientWidth; const hh = stage.clientHeight;
-    let gw = w * 0.46; let gh = gw / IP.MARKER_ASPECT;
-    if (gh > hh * 0.4) { gh = hh * 0.4; gw = gh * IP.MARKER_ASPECT; }
-    const cx = w / 2; const cy = hh * 0.47;
+    let gw; let gh;
+    if (tall) { gh = hh * 0.72; gw = gh * asp; if (gw > w * 0.6) { gw = w * 0.6; gh = gw / asp; } }
+    else { gw = w * 0.46; gh = gw / asp; if (gh > hh * 0.4) { gh = hh * 0.4; gw = gh * asp; } }
+    const cx = w / 2; const cy = hh * (tall ? 0.5 : 0.47);
     return { w, h: hh, cx, cy, gw, gh, quad: [[cx - gw / 2, cy - gh / 2], [cx + gw / 2, cy - gh / 2], [cx + gw / 2, cy + gh / 2], [cx - gw / 2, cy + gh / 2]] };
   };
   // screen px -> video px (video uses object-fit: cover)
@@ -87,15 +92,22 @@ export async function startCamera(opts) {
     const g = guide();
     svg.setAttribute('viewBox', `0 0 ${g.w} ${g.h}`);
     const r = g.gw * 1.02;
-    const ms = g.gw * (IP.TEMPLATE.markerSize / IP.TEMPLATE.markerRect.w) * 2.2;
+    const ms = Math.max(18, g.gw * (spec.markerSize / spec.markerRect.w) * 2.2);
     const all = found.every(Boolean);
+    const pad = g.gw * 0.18;
+    const hole = tall
+      ? `<rect x="${g.cx - g.gw / 2 - pad}" y="${g.cy - g.gh / 2 - pad}" width="${g.gw + pad * 2}" height="${g.gh + pad * 2}" rx="10" fill="#000"/>`
+      : `<circle cx="${g.cx}" cy="${g.cy}" r="${r}" fill="#000"/>`;
+    const outline = tall
+      ? `<rect x="${g.cx - g.gw / 2 - pad}" y="${g.cy - g.gh / 2 - pad}" width="${g.gw + pad * 2}" height="${g.gh + pad * 2}" rx="10" fill="none" stroke="${all ? '#5fd3b3' : '#9ad1ff'}" stroke-opacity=".75" stroke-width="2" stroke-dasharray="8 8"/>`
+      : `<circle cx="${g.cx}" cy="${g.cy}" r="${r}" fill="none" stroke="${all ? '#5fd3b3' : '#ff8fab'}" stroke-opacity=".75" stroke-width="2" stroke-dasharray="8 8"/>`;
     svg.innerHTML = `
-      <defs><mask id="camMask"><rect width="${g.w}" height="${g.h}" fill="#fff"/><circle cx="${g.cx}" cy="${g.cy}" r="${r}" fill="#000"/></mask></defs>
+      <defs><mask id="camMask"><rect width="${g.w}" height="${g.h}" fill="#fff"/>${hole}</mask></defs>
       <rect width="${g.w}" height="${g.h}" fill="rgba(3,5,18,.55)" mask="url(#camMask)"/>
-      <circle cx="${g.cx}" cy="${g.cy}" r="${r}" fill="none" stroke="${all ? '#5fd3b3' : '#ff8fab'}" stroke-opacity=".75" stroke-width="2" stroke-dasharray="8 8"/>
+      ${outline}
       <rect x="${g.cx - g.gw / 2}" y="${g.cy - g.gh / 2}" width="${g.gw}" height="${g.gh}" fill="none" stroke="#ffe1a1" stroke-width="1.5" stroke-dasharray="6 6" opacity=".8"/>
       ${g.quad.map(([x, y], i) => `<rect x="${x - ms / 2}" y="${y - ms / 2}" width="${ms}" height="${ms}" rx="4" fill="${found[i] ? 'rgba(95,211,179,.35)' : 'none'}" stroke="${found[i] ? '#5fd3b3' : '#fff'}" stroke-width="3"/>`).join('')}
-      ${all ? `<text x="${g.cx}" y="${g.cy + r + 28}" fill="#c9ffe9" font-size="15" text-anchor="middle" font-family="sans-serif">✓ ${esc(S.shoot)}</text>` : ''}`;
+      ${all ? `<text x="${g.cx}" y="${tall ? g.cy + g.gh / 2 + pad + 24 : g.cy + r + 28}" fill="#c9ffe9" font-size="15" text-anchor="middle" font-family="sans-serif">✓ ${esc(S.shoot)}</text>` : ''}`;
   }
   drawOverlay();
   window.addEventListener('resize', onResize);
@@ -106,7 +118,7 @@ export async function startCamera(opts) {
     const s = Math.min(1, 720 / Math.max(video.videoWidth, video.videoHeight));
     small.width = Math.round(video.videoWidth * s); small.height = Math.round(video.videoHeight * s);
     small.getContext('2d', { willReadFrequently: true }).drawImage(video, 0, 0, small.width, small.height);
-    const det = IP.detectMarkers(small, toVideo(guide(), s));
+    const det = IP.detectMarkers(small, toVideo(guide(), s), spec);
     found = det.found;
     const n = found.filter(Boolean).length;
     status.textContent = `${n}/4`;
@@ -118,10 +130,10 @@ export async function startCamera(opts) {
   shutter.onclick = () => {
     const canvas = IP.toCanvas(video, 2000);
     const scale = canvas.width / video.videoWidth;
-    let det = IP.detectMarkers(canvas, toVideo(guide(), scale));
+    let det = IP.detectMarkers(canvas, toVideo(guide(), scale), spec);
     if (!det.all) {
-      const global = IP.findMarkersGlobal(canvas);
-      det = global ? IP.detectMarkers(canvas, global.points) : IP.completeQuad(det);
+      const global = IP.findMarkersGlobal(canvas, spec);
+      det = global ? IP.detectMarkers(canvas, global.points, spec) : IP.completeQuad(det);
     }
     vibrate(30);
     close();
@@ -204,7 +216,7 @@ function openAdjust(photo, det, source, opts) {
     btn.disabled = true; btn.textContent = S.processing;
     setTimeout(() => {
       try {
-        const out = IP.processCapture(photo, sortQuad(pts), opts.defaults);
+        const out = IP.processCapture(photo, sortQuad(pts), opts.defaults, opts.spec || IP.TEMPLATE);
         close();
         opts.onResult({ dataURL: out.dataURL, colors: out.colors, found: out.found, inkRatio: out.inkRatio, source });
       } catch (e) {
