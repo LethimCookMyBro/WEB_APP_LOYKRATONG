@@ -1,7 +1,7 @@
 // mobile-client.js — participant flow
-// language → activity (ลอยกระทง / ทานาบาตะ) → name → wish → write → capture → send
+// language → name → wish → write & fold → capture → swipe to float
 import {
-  WISHES, getWish, UI, LANGUAGE_MODES, TANZAKU_COLORS,
+  WISHES, getWish, UI, LANGUAGE_MODES,
   japaneseNameToThai, thaiNameToKatakana, katakanaReading,
 } from './language-data.js';
 import { renderPattern } from './pattern-view.js';
@@ -11,7 +11,7 @@ import { startCamera, captureFromFile } from './capture-ui.js';
 
 const DEFAULT_COLORS = { base: '#2E7D32', innerPetal: '#FF8F00', outerPetal: '#D84315', flower: '#FDD835' };
 const STEPS = ['name', 'wish', 'write', 'capture', 'send'];
-const STORE_KEY = 'loykrathong_state_v2';
+const STORE_KEY = 'loykrathong_state_v3';
 
 /* ------------------------------------------------------------------ */
 /* State                                                               */
@@ -20,15 +20,13 @@ const fresh = () => ({
   step: 'welcome',
   mode: null,            // TH_TO_JP | JP_TO_TH
   lang: 'th',
-  activity: null,        // krathong | tanabata
   nameInput: '',
   nameOut: '',
   nameEdited: false,
   nameSource: '',
   wishId: null,
   customWish: '',
-  captures: {},          // { krathong: {...}, tanabata: {...} }
-  tanzakuColor: TANZAKU_COLORS[0].hex,
+  capture: null,         // { dataURL, colors, found, inkRatio, source }
   id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
   sent: 0,
 });
@@ -50,13 +48,10 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const h = (html) => { const tp = document.createElement('template'); tp.innerHTML = html.trim(); return tp.content.firstElementChild; };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const t = (k) => UI[state.lang][k] ?? UI.th[k] ?? k;
-const ta = (k) => t(`${k}_${state.activity || 'krathong'}`); // activity-specific string
-const isTanabata = () => state.activity === 'tanabata';
 const targetScript = () => (state.mode === LANGUAGE_MODES.TH_TO_JP ? 'ja' : 'th');
 const scriptOf = (text) => (/[ぁ-ヿ一-鿿]/.test(text) ? 'ja' : 'th');
-const capture = () => state.captures[state.activity] || null;
+const capture = () => state.capture;
 const vibrate = (p) => { try { navigator.vibrate?.(p); } catch { /* ignore */ } };
-const ICON = { krathong: '🪷', tanabata: '🎋' };
 
 function toast(msg, type = '') {
   const el = h(`<div class="toast ${type}">${esc(msg)}</div>`);
@@ -100,16 +95,15 @@ function go(step) {
 
 function renderChrome() {
   document.body.dataset.lang = state.lang;
-  document.body.dataset.activity = state.activity || '';
   document.documentElement.lang = state.lang;
-  $('#brandTitle').textContent = state.mode ? t('appTitle') : 'ลอยกระทง × ทานาบาตะ';
+  $('#brandTitle').textContent = state.mode ? t('appTitle') : 'ลอยกระทง 3 มิติ';
   const prog = $('#progress');
   const idx = STEPS.indexOf(state.step);
   prog.hidden = idx < 0;
   if (idx >= 0) {
     const labels = [t('stepName'), t('stepWish'), t('stepWrite'), t('stepCapture'), t('stepSend')];
     prog.innerHTML = `<div class="prog-bars">${STEPS.map((s, i) => `<button type="button" class="pb ${i < idx ? 'done' : ''} ${i === idx ? 'active' : ''}" data-step="${s}" aria-label="${esc(labels[i])}" ${i < idx ? '' : 'disabled'}></button>`).join('')}</div>
-      <div class="prog-label"><span>${ICON[state.activity] || ''} ${esc(t('stepOf').replace('{n}', idx + 1))}</span> ${esc(labels[idx])}</div>`;
+      <div class="prog-label"><span>🪷 ${esc(t('stepOf').replace('{n}', idx + 1))}</span> ${esc(labels[idx])}</div>`;
     prog.querySelectorAll('.pb.done').forEach((n) => { n.onclick = () => go(n.dataset.step); });
   }
 }
@@ -140,7 +134,7 @@ function render() {
   const screen = $('#screen');
   screen.innerHTML = '';
   screen.style.animation = 'none'; void screen.offsetWidth; screen.style.animation = '';
-  ({ welcome: renderWelcome, activity: renderActivity, name: renderName, wish: renderWish, write: renderWrite, capture: renderCapture, send: renderSend })[state.step]?.(screen);
+  ({ welcome: renderWelcome, name: renderName, wish: renderWish, write: renderWrite, capture: renderCapture, send: renderSend })[state.step]?.(screen);
 }
 
 /* ------------------------------------------------------------------ */
@@ -152,34 +146,25 @@ const ART_KRATHONG = `<svg viewBox="0 0 120 90" aria-hidden="true"><defs><linear
   <path d="M14 66c14 6 78 6 92 0c-5 11-25 16-46 16S19 77 14 66z" fill="#3b9a5a"/>
   ${[-36, -18, 0, 18, 36].map((dx) => `<path d="M${60 + dx} 44c8 8 9 16 5 24h-10c-4-8-3-16 5-24z" fill="url(#ak)"/>`).join('')}
 </svg>`;
-const ART_TANABATA = `<svg viewBox="0 0 120 90" aria-hidden="true">
-  <path d="M8 18c30 6 70-4 104 4" stroke="#c9d7ff" stroke-opacity=".35" stroke-width="8" fill="none" stroke-linecap="round"/>
-  <g fill="#fff">${[[16, 10], [40, 22], [70, 8], [96, 18], [108, 34], [26, 30]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="1.2"/>`).join('')}</g>
-  <path d="M30 90V6" stroke="#4fae6a" stroke-width="5"/><path d="M30 30h4M30 52h4M30 74h4" stroke="#2f7d47" stroke-width="5"/>
-  <path d="M32 24c20 2 44 10 66 6M32 48c18 2 40 8 60 4" stroke="#3d9558" stroke-width="2.4" fill="none"/>
-  ${[[70, 32, '#D9475A'], [92, 30, '#F2C94C'], [56, 52, '#7B5EA7'], [82, 54, '#3E9B5F'], [48, 30, '#F7F3EA']].map(([x, y, c], i) => `<g transform="rotate(${(i % 2 ? 1 : -1) * 6} ${x} ${y})"><path d="M${x} ${y - 4}v4" stroke="#ddd" stroke-width=".8"/><rect x="${x - 4}" y="${y}" width="8" height="24" rx="1" fill="${c}"/></g>`).join('')}
-  <g fill="#4fae6a">${[[44, 20], [64, 26], [86, 26], [52, 44], [74, 48]].map(([x, y]) => `<path d="M${x} ${y}c6-4 12-4 16-2c-6 3-11 4-16 2z"/>`).join('')}</g>
-</svg>`;
-
 /* ------------------------------------------------------------------ */
 /* Welcome                                                             */
 /* ------------------------------------------------------------------ */
 function renderWelcome(root) {
   actionBar(null);
   root.appendChild(h(`<section class="welcome">
-    <div class="hero-art"><div class="ha ha-k">${ART_KRATHONG}</div><div class="ha ha-t">${ART_TANABATA}</div></div>
-    <h1 class="hero-title">ลอยกระทง × ทานาบาตะ</h1>
-    <p class="hero-ja">ロイクラトン × 七夕</p>
-    <p class="hero-sub">แลกเปลี่ยนวัฒนธรรมไทย–ญี่ปุ่น · タイと日本の文化交流</p>
+    <div class="hero-art"><div class="ha ha-k">${ART_KRATHONG}</div></div>
+    <h1 class="hero-title">ลอยกระทง 3 มิติ</h1>
+    <p class="hero-ja">3Dロイクラトン</p>
+    <p class="hero-sub">แลกเปลี่ยนภาษาไทย–ญี่ปุ่น · タイ語と日本語の交流</p>
   </section>`));
   if (hadProgress && state.mode && state.step === 'welcome') {
     const r = h(`<div class="resume">
-      <span class="resume-ico">${ICON[state.activity] || '✨'}</span>
+      <span class="resume-ico">🪷</span>
       <div class="resume-txt"><b>${esc(t('resume'))}</b><span>${esc(state.nameOut || '')}</span></div>
       <button class="btn btn-sm btn-primary" data-a="resume">${esc(t('resume'))} ›</button>
       <button class="btn btn-sm btn-ghost" data-a="restart" aria-label="${esc(t('restart'))}">✕</button>
     </div>`);
-    r.querySelector('[data-a=resume]').onclick = () => { audio.init(); go(resumeStep === 'welcome' ? 'activity' : resumeStep); };
+    r.querySelector('[data-a=resume]').onclick = () => { audio.init(); go(resumeStep === 'welcome' ? 'name' : resumeStep); };
     r.querySelector('[data-a=restart]').onclick = () => { state = fresh(); save(); render(); };
     root.appendChild(r);
   }
@@ -194,32 +179,11 @@ function renderWelcome(root) {
       if (state.mode && state.mode !== b.dataset.mode) { const id = state.id; state = fresh(); state.id = id; }
       state.mode = b.dataset.mode;
       state.lang = b.dataset.lang;
-      go('activity');
+      go('name');
     };
   });
   root.appendChild(cards);
-  root.appendChild(h(`<p class="foot-links"><a href="/template.html" target="_blank" rel="noopener">🪷 กระดาษกระทง</a><a href="/template.html?type=tanzaku" target="_blank" rel="noopener">🎋 กระดาษทันซากุ</a></p>`));
-}
-
-/* ------------------------------------------------------------------ */
-/* Activity                                                            */
-/* ------------------------------------------------------------------ */
-function renderActivity(root) {
-  // exchange: Japanese guests try the Thai tradition, Thai participants try the Japanese one
-  const rec = state.mode === LANGUAGE_MODES.JP_TO_TH ? 'krathong' : 'tanabata';
-  root.appendChild(h(`<div>${head(t('actTitle'), t('actSub'))}
-    <div class="act-list">
-      ${['krathong', 'tanabata'].map((a) => `<button class="act-card ${state.activity === a ? 'selected' : ''}" data-act="${a}">
-        <span class="act-art">${a === 'krathong' ? ART_KRATHONG : ART_TANABATA}</span>
-        <span class="act-txt"><b>${esc(t('act_' + a))}${a === rec ? `<em class="badge">${esc(t('recommended'))}</em>` : ''}</b><small>${esc(t(`act_${a}_sub`))}</small></span>
-      </button>`).join('')}
-    </div>
-    <p class="story">🎋 ${esc(t('tanabataStory'))}</p>
-  </div>`));
-  root.querySelectorAll('.act-card').forEach((b) => {
-    b.onclick = () => { state.activity = b.dataset.act; save(); vibrate(10); go(state.nameOut ? 'wish' : 'name'); };
-  });
-  actionBar([backBtn('welcome')]);
+  root.appendChild(h(`<p class="foot-links"><a href="/template.html" target="_blank" rel="noopener">📄 กระดาษ A4 · A4用紙</a></p>`));
 }
 
 /* ------------------------------------------------------------------ */
@@ -238,7 +202,7 @@ function renderName(root) {
     <div id="nameResult"></div>
   </div>`));
   const input = $('#nameInput');
-  const bar = actionBar([backBtn('activity'), nextBtn('wish', !state.nameOut.trim())]);
+  const bar = actionBar([backBtn('welcome'), nextBtn('wish', !state.nameOut.trim())]);
   let patTimer = 0;
   function showResult(fromInput) {
     const res = $('#nameResult');
@@ -428,34 +392,22 @@ function openWishLesson(w, onChoose) {
 /* ------------------------------------------------------------------ */
 /* Write                                                               */
 /* ------------------------------------------------------------------ */
-/** Vertical tanzaku strip (preview / send view). */
-function tanzakuHTML({ color, image = null, wish = '', name = '', script = 'ja', big = false }) {
-  const light = ['#F7F3EA', '#F2C94C'].includes(color);
-  const vertical = script === 'ja';
-  const body = image
-    ? `<img class="tz-img" alt="" src="${image}">`
-    : `<div class="tz-text ${vertical ? 'vert' : ''} ${script}"><span class="tz-wish">${esc(wish)}</span><span class="tz-name">${esc(name)}</span></div>`;
-  return `<div class="tanzaku ${big ? 'big' : ''} ${light ? 'light' : ''}" style="--tz:${color}"><span class="tz-hole"></span><div class="tz-paper">${body}</div></div>`;
-}
-
 function renderWrite(root) {
   const w = currentWish();
   const x = wishTexts(w);
-  const preview = isTanabata()
-    ? `<div class="tz-preview">${tanzakuHTML({ color: '#fffdf7', wish: x.target, name: state.nameOut, script: x.script })}</div>`
-    : `<div class="paper-preview">
+  const preview = `<div class="paper-preview">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
         <div class="pp-name" style="font-family:var(--font-trace-${targetScript()})">${esc(state.nameOut)}</div>
         <div class="pp-wish" style="font-family:var(--font-trace-${x.script})">${esc(x.target)}</div>
       </div>`;
-  root.appendChild(h(`<div>${head(ta('writeTitle'), t('writeSub'))}
+  root.appendChild(h(`<div>${head(t('writeTitle'), t('writeSub'))}
     ${preview}
     <div class="rc-actions">
       <button class="pill" data-a="patName">✍️ ${esc(t('howToWrite'))} · ${esc(t('writeYourName'))}</button>
       <button class="pill" data-a="patWish">✍️ ${esc(t('howToWrite'))} · ${esc(t('writeYourWish'))}</button>
     </div>
-    <ol class="mini-steps">${t(isTanabata() ? 'steps_tanabata' : 'steps_krathong').map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
-    <a class="btn btn-sm btn-ghost btn-block" href="${isTanabata() ? '/template.html?type=tanzaku' : '/template.html'}" target="_blank" rel="noopener">📄 ${esc(t('templateLink'))}</a>
+    <ol class="mini-steps">${t('steps').map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+    <a class="btn btn-sm btn-ghost btn-block" href="/template.html" target="_blank" rel="noopener">📄 ${esc(t('templateLink'))}</a>
   </div>`));
   root.querySelector('[data-a=patName]').onclick = () => {
     const c = h('<div class="sheet-body"><h2 class="sheet-title center"></h2><div class="p"></div></div>');
@@ -479,25 +431,11 @@ const CAPTURE_ART_KRATHONG = `<svg viewBox="0 0 200 130" aria-hidden="true"><def
   <circle r="32" fill="#2E7D32"/><rect x="-24" y="-17" width="48" height="34" rx="3" fill="#fffdf7"/>
   ${[[-28, -21], [22, -21], [-28, 15], [22, 15]].map(([x, y]) => `<rect x="${x}" y="${y}" width="6" height="6" fill="#111"/>`).join('')}
   <path d="M-13 -4h26M-17 6h34" stroke="#333" stroke-width="2" stroke-linecap="round"/></g></svg>`;
-const CAPTURE_ART_TANZAKU = `<svg viewBox="0 0 200 130" aria-hidden="true"><g transform="translate(100 65)">
-  <rect x="-20" y="-60" width="40" height="120" rx="3" fill="#fffdf7"/>
-  ${[[-17, -57], [11, -57], [-17, 51], [11, 51]].map(([x, y]) => `<rect x="${x}" y="${y}" width="6" height="6" fill="#111"/>`).join('')}
-  <path d="M2 -42v52M-6 -30v30" stroke="#333" stroke-width="2.2" stroke-linecap="round"/><path d="M-6 30v14" stroke="#555" stroke-width="2" stroke-linecap="round"/></g></svg>`;
-
 function renderCapture(root) {
   const c = capture();
-  root.appendChild(h(`<div>${head(c ? t('resultTitle') : t('captureTitle'), c ? '' : ta('captureSub'))}<div id="capBody"></div></div>`));
+  root.appendChild(h(`<div>${head(c ? t('resultTitle') : t('captureTitle'), c ? '' : t('captureSub'))}<div id="capBody"></div></div>`));
   const body = $('#capBody');
   if (c) {
-    if (isTanabata()) {
-      body.appendChild(h(`<div class="cap-result tall">
-        <div class="tz-preview">${tanzakuHTML({ color: state.tanzakuColor, image: c.dataURL })}</div>
-        <div class="tz-colors"><div class="rc-sub">${esc(t('colorTitle'))} · <span class="muted">${esc(t('colorNote'))}</span></div>
-          <div class="tzc-row">${TANZAKU_COLORS.map((col) => `<button class="tzc ${state.tanzakuColor === col.hex ? 'on' : ''}" style="--c:${col.hex}" data-c="${col.hex}" aria-label="${esc(col[state.lang])}"><span></span><small>${esc(col[state.lang])}</small></button>`).join('')}</div>
-        </div>
-      </div>`));
-      body.querySelectorAll('.tzc').forEach((b) => { b.onclick = () => { state.tanzakuColor = b.dataset.c; save(); render(); }; });
-    } else {
       body.appendChild(h(`<div class="cap-result">
         <div class="extract-preview"><img alt="" src="${c.dataURL}"></div>
         <div class="rc-sub">${esc(t('paletteHint'))}</div>
@@ -511,14 +449,13 @@ function renderCapture(root) {
         pal.appendChild(sw);
       }
       if (c.found && Object.values(c.found).some((v) => v === false)) body.appendChild(h(`<p class="hint center">${esc(t('defaultColorNote'))}</p>`));
-    }
     if (c.inkRatio !== undefined && c.inkRatio < 0.002) body.appendChild(h(`<p class="warn-line">⚠️ ${esc(t('faintInk'))}</p>`));
     body.appendChild(h(`<div class="rc-actions"><button class="pill" data-a="retake">📷 ${esc(t('retake'))}</button><button class="pill" data-a="draw">✏️ ${esc(t('drawInstead'))}</button></div>`));
     body.querySelector('[data-a=retake]').onclick = openCamera;
     body.querySelector('[data-a=draw]').onclick = openDrawPad;
   } else {
     body.appendChild(h(`<div class="cap-start">
-      <div class="cap-art">${isTanabata() ? CAPTURE_ART_TANZAKU : CAPTURE_ART_KRATHONG}</div>
+      <div class="cap-art">${CAPTURE_ART_KRATHONG}</div>
       <ul class="tip-row">${t('tips').map((x, i) => `<li><span>${['💡', '📱', '⬛'][i]}</span>${esc(x)}</li>`).join('')}</ul>
       <button class="btn btn-primary btn-block btn-lg" data-a="cam">📷 ${esc(t('openCamera'))}</button>
       <label class="btn btn-block">🖼️ ${esc(t('upload'))}<input type="file" accept="image/*" hidden data-a="file"></label>
@@ -529,7 +466,7 @@ function renderCapture(root) {
     const file = body.querySelector('[data-a=file]');
     file.onchange = () => { if (file.files?.[0]) loadFile(file.files[0]); };
   }
-  actionBar([backBtn('write'), nextBtn('send', !c, `${ICON[state.activity]} ${ta('sendTitle')}`)]);
+  actionBar([backBtn('write'), nextBtn('send', !c, `🪷 ${t('sendTitle')}`)]);
 }
 
 function captureStrings() {
@@ -540,29 +477,25 @@ function captureStrings() {
   };
 }
 function onCaptured(result) {
-  state.captures[state.activity] = { dataURL: result.dataURL, colors: result.colors, found: result.found, inkRatio: result.inkRatio, source: result.source };
+  state.capture = { dataURL: result.dataURL, colors: result.colors, found: result.found, inkRatio: result.inkRatio, source: result.source };
   save(); vibrate(20); render();
 }
-const captureOpts = () => ({
-  strings: captureStrings(), defaults: DEFAULT_COLORS, onResult: onCaptured, toast, vibrate,
-  spec: isTanabata() ? IP.SPECS.tanzaku : IP.SPECS.krathong,
-});
+const captureOpts = () => ({ strings: captureStrings(), defaults: DEFAULT_COLORS, onResult: onCaptured, toast, vibrate });
 const openCamera = () => startCamera(captureOpts());
 const loadFile = (f) => captureFromFile(f, captureOpts());
 
 /* ---------- Draw on screen (no paper) ---------- */
 function openDrawPad() {
-  const tall = isTanabata();
   const colors = { ...(capture()?.colors || DEFAULT_COLORS) };
   const pens = ['#1b1b1b', '#c0392b', '#1e5bb8', '#1f7a43'];
   let pen = pens[0];
   const x = wishTexts(currentWish());
-  const [W, H] = tall ? [400, 1620] : [720, 500];
+  const [W, H] = [720, 500];
   const content = h(`<div class="sheet-body">
     <h2 class="sheet-title center">${esc(t('drawTitle'))}</h2>
-    <div class="draw-pad ${tall ? 'tall' : ''}"><div class="ghost ${tall && x.script === 'ja' ? 'vert' : ''}" style="font-family:var(--font-trace-${x.script})">${esc(x.target)}<br>${esc(state.nameOut)}</div><canvas width="${W}" height="${H}"></canvas></div>
+    <div class="draw-pad"><div class="ghost" style="font-family:var(--font-trace-${x.script})">${esc(state.nameOut)}<br>${esc(x.target)}</div><canvas width="${W}" height="${H}"></canvas></div>
     <div class="pen-colors">${pens.map((p, i) => `<button type="button" style="background:${p}" class="${i ? '' : 'on'}" data-pen="${p}" aria-label="pen ${i + 1}"></button>`).join('')}</div>
-    ${tall ? '' : '<div class="palette" id="drawPal"></div>'}
+    <div class="palette" id="drawPal"></div>
     <div class="row"><button class="btn" data-a="clear">${esc(t('clear'))}</button><button class="btn btn-primary" style="flex:1" data-a="done">✓ ${esc(t('done'))}</button></div>
   </div>`);
   const close = openSheet(content);
@@ -575,7 +508,7 @@ function openDrawPad() {
   cv.addEventListener('pointermove', (e) => {
     if (!drawing) return;
     const p = pos(e);
-    g.strokeStyle = pen; g.lineWidth = tall ? 11 : 9;
+    g.strokeStyle = pen; g.lineWidth = 9;
     g.beginPath(); g.moveTo(...last); g.lineTo(...p); g.stroke();
     last = p; strokes++;
   });
@@ -583,18 +516,16 @@ function openDrawPad() {
   cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
   content.querySelectorAll('[data-pen]').forEach((b) => { b.onclick = () => { pen = b.dataset.pen; content.querySelectorAll('[data-pen]').forEach((o) => o.classList.toggle('on', o === b)); }; });
   const pal = content.querySelector('#drawPal');
-  if (pal) {
-    for (const zone of ['base', 'innerPetal', 'outerPetal', 'flower']) {
-      const sw = h(`<label class="swatch"><span class="sw" style="background:${colors[zone]}"><input type="color" value="${colors[zone].toLowerCase()}"></span>${esc(t('zone')[zone])}</label>`);
-      const inp = sw.querySelector('input');
-      inp.oninput = () => { colors[zone] = inp.value.toUpperCase(); sw.querySelector('.sw').style.background = inp.value; };
-      pal.appendChild(sw);
-    }
+  for (const zone of ['base', 'innerPetal', 'outerPetal', 'flower']) {
+    const sw = h(`<label class="swatch"><span class="sw" style="background:${colors[zone]}"><input type="color" value="${colors[zone].toLowerCase()}"></span>${esc(t('zone')[zone])}</label>`);
+    const inp = sw.querySelector('input');
+    inp.oninput = () => { colors[zone] = inp.value.toUpperCase(); sw.querySelector('.sw').style.background = inp.value; };
+    pal.appendChild(sw);
   }
   content.querySelector('[data-a=clear]').onclick = () => { g.clearRect(0, 0, cv.width, cv.height); strokes = 0; content.querySelector('.ghost').style.opacity = '1'; };
   content.querySelector('[data-a=done]').onclick = () => {
     if (strokes < 5) { toast(t('drawTitle')); return; }
-    state.captures[state.activity] = { dataURL: IP.canvasToDataURL(cv, tall ? 960 : 760), colors, found: null, inkRatio: undefined, source: 'draw' };
+    state.capture = { dataURL: IP.canvasToDataURL(cv), colors, found: null, inkRatio: undefined, source: 'draw' };
     save(); close(); render();
   };
 }
@@ -618,12 +549,10 @@ function buildPayload() {
   const c = capture();
   return {
     id: state.id,
-    activity: state.activity,
     languageMode: state.mode,
     selectedWishId: state.wishId === 'custom' ? null : state.wishId,
     customWish: state.wishId === 'custom' ? state.customWish : '',
     colors: c.colors,
-    tanzakuColor: state.tanzakuColor,
     handwritingImageBase64: c.dataURL,
     displayName: state.nameOut,
     displayNameOriginal: state.nameInput,
@@ -644,13 +573,12 @@ function renderSend(root) {
   root.innerHTML = '';
   const c = capture();
   if (!c) { go('capture'); return; }
-  const tanabata = isTanabata();
-  sendView = h(`<div class="float-view ${tanabata ? 'tanabata-view' : ''}">
-    ${tanabata ? `<div class="tv-sky"><div class="tv-milky"></div><div class="tv-bamboo l">${ART_TANABATA}</div><div class="tv-stage">${tanzakuHTML({ color: state.tanzakuColor, image: c.dataURL, big: true })}</div></div>` : '<canvas class="three"></canvas>'}
+  sendView = h(`<div class="float-view">
+    <canvas class="three"></canvas>
     <div class="float-ui">
       <div class="float-top">
         <button class="btn btn-sm btn-glass" data-a="back">‹ ${esc(t('edit'))}</button>
-        <span class="chip btn-glass"><span class="dot" data-conn></span>${ICON[state.activity]} ${esc(ta('sendTitle'))}</span>
+        <span class="chip btn-glass"><span class="dot" data-conn></span>🪷 ${esc(t('sendTitle'))}</span>
       </div>
       <div class="float-bottom" id="sendBottom"></div>
     </div>
@@ -666,15 +594,12 @@ function renderSend(root) {
     refresh() {
       if (!sendView) return;
       if (phase === 'sent') {
-        const other = tanabata ? 'krathong' : 'tanabata';
         bottom.innerHTML = `<div class="sent-card">
-          <div class="sent-ico">${ICON[state.activity]}</div>
-          <div class="sent-title">${esc(ta('sent'))}</div>
+          <div class="sent-ico">🪷</div>
+          <div class="sent-title">${esc(t('sent'))}</div>
           <p class="sent-sub">${esc(t('sentSub'))}</p>
-          <button class="btn btn-primary btn-block" data-a="other">${ICON[other]} ${esc(t('tryOther'))} · ${esc(t('act_' + other))}</button>
-          <div class="row"><button class="btn btn-sm btn-ghost" style="flex:1" data-a="again">${esc(t('again'))}</button><button class="btn btn-sm btn-ghost" style="flex:1" data-a="edit">${esc(t('edit'))}</button></div>
+          <div class="row"><button class="btn btn-ghost" style="flex:1" data-a="edit">${esc(t('edit'))}</button><button class="btn btn-primary" style="flex:1" data-a="again">${esc(t('again'))}</button></div>
         </div>`;
-        bottom.querySelector('[data-a=other]').onclick = () => { state.activity = other; save(); go(state.captures[other] ? 'send' : 'write'); };
         bottom.querySelector('[data-a=again]').onclick = () => { phase = 'ready'; resetItem(); sendUI.refresh(); };
         bottom.querySelector('[data-a=edit]').onclick = () => go('capture');
         return;
@@ -683,11 +608,11 @@ function renderSend(root) {
       floatScene?.setLocked(!ceremony.opened);
       if (!ceremony.opened) {
         bottom.innerHTML = `<div class="lock-pill"><span class="lock-ico">🔒</span><span><b>${esc(t('waiting'))}</b><br><small>${esc(t('waitingSub'))}</small></span></div>`;
-      } else if (!tanabata && !floatScene) {
-        bottom.innerHTML = `<button class="btn btn-primary btn-block" style="pointer-events:auto" data-a="tap">${ICON.krathong} ${esc(t('tapToSend'))}</button>`;
+      } else if (!floatScene) {
+        bottom.innerHTML = `<button class="btn btn-primary btn-block" style="pointer-events:auto" data-a="tap">🪷 ${esc(t('tapToSend'))}</button>`;
         bottom.querySelector('[data-a=tap]').onclick = () => send();
       } else {
-        bottom.innerHTML = SWIPE_HINT(ta('swipe'));
+        bottom.innerHTML = SWIPE_HINT(t('swipe'));
       }
     },
     celebrate() {
@@ -721,11 +646,6 @@ function renderSend(root) {
   }
 
   async function resetItem() {
-    if (tanabata) {
-      const strip = sendView?.querySelector('.tv-stage .tanzaku');
-      if (strip) { strip.style.transition = 'none'; strip.style.transform = ''; strip.style.opacity = ''; }
-      return;
-    }
     if (!floatScene) return;
     const img = await loadImage(capture().dataURL);
     floatScene.setKrathong({ colors: capture().colors, signImage: img });
@@ -733,13 +653,7 @@ function renderSend(root) {
   }
 
   sendUI.refresh();
-  if (tanabata) setupTanzakuSwipe(sendView, {
-    locked: () => !ceremony.opened || phase !== 'ready',
-    onLocked: () => { if (!ceremony.opened) { toast('🔒 ' + t('waiting')); vibrate(40); } },
-    onLaunch: () => { phase = 'flying'; audio.swoosh(); vibrate(25); sendUI?.refresh(); },
-    onExit: () => send(),
-  });
-  else startKrathongScene(sendView, send, (p) => { phase = p; });
+  startKrathongScene(sendView, send, (p) => { phase = p; });
 
   function startKrathongScene(view, onExit, setPhase) {
     (async () => {
@@ -769,42 +683,6 @@ function renderSend(root) {
       }
     })();
   }
-}
-
-/** Swipe the tanzaku up: it flutters away into the sky, then we send it. */
-function setupTanzakuSwipe(view, { locked, onLocked, onLaunch, onExit }) {
-  const strip = () => view.querySelector('.tv-stage .tanzaku');
-  let startY = null; let pid = null; let dy = 0;
-  view.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('button')) return;
-    startY = e.clientY; pid = e.pointerId; dy = 0;
-    const s = strip(); if (s) s.style.transition = 'none';
-  });
-  view.addEventListener('pointermove', (e) => {
-    if (startY === null || e.pointerId !== pid) return;
-    dy = Math.min(0, e.clientY - startY);
-    const s = strip();
-    if (s) s.style.transform = `translateY(${(locked() ? dy * 0.2 : dy * 0.6).toFixed(1)}px) rotate(${(dy * 0.02).toFixed(2)}deg)`;
-  });
-  const up = (e) => {
-    if (startY === null || e.pointerId !== pid) return;
-    startY = null;
-    const s = strip();
-    if (!s) return;
-    if (dy < -70) {
-      if (locked()) { onLocked(); s.style.transition = 'transform .5s cubic-bezier(.3,1.6,.5,1)'; s.style.transform = ''; return; }
-      onLaunch();
-      s.style.transition = 'transform 1.6s cubic-bezier(.4,0,.6,1), opacity 1.6s';
-      s.style.transform = 'translateY(-115vh) rotate(-14deg) scale(.55)';
-      s.style.opacity = '0.2';
-      setTimeout(onExit, 1500);
-    } else {
-      s.style.transition = 'transform .4s ease';
-      s.style.transform = '';
-    }
-  };
-  view.addEventListener('pointerup', up);
-  view.addEventListener('pointercancel', up);
 }
 
 function onCeremonyOpened() {

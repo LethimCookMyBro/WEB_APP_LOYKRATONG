@@ -27,23 +27,16 @@
   <div class="bar">
     <button onclick="window.print()">🖨️ พิมพ์ · 印刷</button>
     <a class="ghost" href="/assets/templates/a4-origami-sheet.pdf" download>PDF</a>
-    <a class="ghost" id="other" href="/template.html?type=tanzaku">🎋 กระดาษทันซากุ</a>
     <small>พิมพ์ขนาดจริง 100% (Actual size) · 実寸で印刷</small>
   </div>
   <div class="sheet" id="sheet"></div>
   <script type="module">
-    import { buildTemplateSVG, buildTanzakuSVG } from '/js/template-svg.js';
+    import { buildTemplateSVG } from '/js/template-svg.js';
     const params = new URLSearchParams(location.search);
     const withQr = params.get('qr') !== '0';
-    const tanzaku = params.get('type') === 'tanzaku';
-    document.title = tanzaku ? 'A4 Tanzaku Template' : 'A4 Krathong Template';
-    document.querySelector('.bar a.ghost').href = tanzaku ? '/assets/templates/a4-tanzaku-sheet.pdf' : '/assets/templates/a4-origami-sheet.pdf';
-    const other = document.getElementById('other');
-    other.href = tanzaku ? '/template.html' : '/template.html?type=tanzaku';
-    other.textContent = tanzaku ? '🪷 กระดาษกระทง' : '🎋 กระดาษทันซากุ';
     let joinUrl = '';
     try { joinUrl = (await (await fetch('/api/config')).json()).joinUrl; } catch {}
-    document.getElementById('sheet').innerHTML = (tanzaku ? buildTanzakuSVG : buildTemplateSVG)({ qrHref: withQr ? '/qr.svg?t=' + Date.now() : null, joinUrl: withQr ? joinUrl : '' });
+    document.getElementById('sheet').innerHTML = buildTemplateSVG({ qrHref: withQr ? '/qr.svg?t=' + Date.now() : null, joinUrl: withQr ? joinUrl : '' });
   </script>
 </body>
 </html>
